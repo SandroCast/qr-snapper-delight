@@ -13,6 +13,7 @@ const QRScanner = () => {
   const [photoCount, setPhotoCount] = useState(0);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const processingRef = useRef<boolean>(false);
 
   const takePicture = async () => {
     try {
@@ -49,17 +50,32 @@ const QRScanner = () => {
   };
 
   const onScanSuccess = async (decodedText: string) => {
-    if (decodedText === targetQRCode && scannerRef.current) {
-      scannerRef.current.pause(true);
+    if (decodedText === targetQRCode && scannerRef.current && !processingRef.current) {
+      processingRef.current = true;
       
-      await takePicture();
-      
-      // Aguarda 10 segundos antes de reiniciar o scanner
-      timeoutRef.current = setTimeout(() => {
-        if (scannerRef.current) {
-          scannerRef.current.resume();
-        }
-      }, 10000);
+      try {
+        // Primeiro pausamos o scanner
+        await scannerRef.current.pause();
+        
+        // Agora podemos tirar a foto com segurança
+        await takePicture();
+        
+        // Aguarda 10 segundos antes de reiniciar o scanner
+        timeoutRef.current = setTimeout(async () => {
+          if (scannerRef.current) {
+            try {
+              await scannerRef.current.resume();
+              processingRef.current = false;
+            } catch (error) {
+              console.error('Erro ao resumir scanner:', error);
+              processingRef.current = false;
+            }
+          }
+        }, 10000);
+      } catch (error) {
+        console.error('Erro no processo de captura:', error);
+        processingRef.current = false;
+      }
     }
   };
 
@@ -75,6 +91,7 @@ const QRScanner = () => {
       clearTimeout(timeoutRef.current);
     }
     setIsScanning(false);
+    processingRef.current = false;
   };
 
   useEffect(() => {
@@ -94,6 +111,7 @@ const QRScanner = () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+      processingRef.current = false;
     };
   }, [isScanning, targetQRCode]);
 
