@@ -1,42 +1,82 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Camera, CameraResultType } from '@capacitor/camera';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { Download } from "lucide-react";
 
 const QRScanner = () => {
   const [targetQRCode, setTargetQRCode] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [photoCount, setPhotoCount] = useState(0);
+  const [photos, setPhotos] = useState<string[]>([]);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
 
-  const takePicture = async () => {
+  const captureFrame = async () => {
     try {
-      const image = await Camera.getPhoto({
-        quality: 90,
-        allowEditing: false,
-        resultType: CameraResultType.Base64
+      const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
+      if (!qrElement) {
+        throw new Error('Video element not found');
+      }
+
+      // Criar um canvas para capturar o frame do vídeo
+      const canvas = document.createElement('canvas');
+      canvas.width = qrElement.videoWidth;
+      canvas.height = qrElement.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not get canvas context');
+
+      // Desenhar o frame atual do vídeo no canvas
+      ctx.drawImage(qrElement, 0, 0, canvas.width, canvas.height);
+
+      // Converter para base64
+      const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+      const base64Data = base64Image.split(',')[1];
+
+      // Salvar a imagem
+      const fileName = `qr-snap-${Date.now()}.jpeg`;
+      await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.Documents
       });
 
-      if (image.base64String) {
-        const fileName = `qr-snap-${Date.now()}.jpeg`;
-        await Filesystem.writeFile({
-          path: fileName,
-          data: image.base64String,
-          directory: Directory.Documents
-        });
-
-        setPhotoCount(prev => prev + 1);
-        toast.success('Foto capturada e salva!');
-      }
+      setPhotos(prev => [...prev, fileName]);
+      setPhotoCount(prev => prev + 1);
+      toast.success('Foto capturada e salva!');
     } catch (error) {
       console.error('Erro ao capturar foto:', error);
       toast.error('Erro ao capturar foto');
+    }
+  };
+
+  const downloadAllPhotos = async () => {
+    try {
+      for (const fileName of photos) {
+        const file = await Filesystem.readFile({
+          path: fileName,
+          directory: Directory.Documents
+        });
+
+        // Criar um link de download
+        const link = document.createElement('a');
+        link.href = `data:image/jpeg;base64,${file.data}`;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Pequeno delay entre downloads
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      toast.success('Download de todas as fotos concluído!');
+    } catch (error) {
+      console.error('Erro ao baixar fotos:', error);
+      toast.error('Erro ao baixar fotos');
     }
   };
 
@@ -57,8 +97,8 @@ const QRScanner = () => {
         // Primeiro pausamos o scanner
         await scannerRef.current.pause();
         
-        // Agora podemos tirar a foto com segurança
-        await takePicture();
+        // Capturar o frame atual
+        await captureFrame();
         
         // Aguarda 10 segundos antes de reiniciar o scanner
         timeoutRef.current = setTimeout(async () => {
@@ -136,20 +176,33 @@ const QRScanner = () => {
             />
           </div>
 
-          <div className="flex justify-center">
-            {!isScanning ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-center">
+              {!isScanning ? (
+                <Button
+                  onClick={startScanning}
+                  className="w-full bg-green-500 hover:bg-green-600 text-white"
+                >
+                  Iniciar Scanner
+                </Button>
+              ) : (
+                <Button
+                  onClick={stopScanning}
+                  className="w-full bg-red-500 hover:bg-red-600 text-white"
+                >
+                  Parar Scanner
+                </Button>
+              )}
+            </div>
+
+            {photoCount > 0 && (
               <Button
-                onClick={startScanning}
-                className="w-full bg-green-500 hover:bg-green-600 text-white"
+                onClick={downloadAllPhotos}
+                className="w-full flex items-center justify-center gap-2"
+                variant="outline"
               >
-                Iniciar Scanner
-              </Button>
-            ) : (
-              <Button
-                onClick={stopScanning}
-                className="w-full bg-red-500 hover:bg-red-600 text-white"
-              >
-                Parar Scanner
+                <Download size={16} />
+                Baixar {photoCount} foto{photoCount !== 1 ? 's' : ''}
               </Button>
             )}
           </div>
