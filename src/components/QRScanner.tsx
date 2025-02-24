@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -19,10 +20,12 @@ const QRScanner = () => {
   const turnOnFlash = async () => {
     try {
       const track = trackRef.current;
-      if (track && 'imageCaptureEnabled' in track.getCapabilities()) {
-        const imageCapture = new (window as any).ImageCapture(track);
-        if (imageCapture.torch) {
-          await imageCapture.torch(true);
+      if (track) {
+        const capabilities = track.getCapabilities();
+        if ('torch' in capabilities) {
+          await track.applyConstraints({
+            advanced: [{ torch: true }]
+          });
         }
       }
     } catch (error) {
@@ -33,10 +36,12 @@ const QRScanner = () => {
   const turnOffFlash = async () => {
     try {
       const track = trackRef.current;
-      if (track && 'imageCaptureEnabled' in track.getCapabilities()) {
-        const imageCapture = new (window as any).ImageCapture(track);
-        if (imageCapture.torch) {
-          await imageCapture.torch(false);
+      if (track) {
+        const capabilities = track.getCapabilities();
+        if ('torch' in capabilities) {
+          await track.applyConstraints({
+            advanced: [{ torch: false }]
+          });
         }
       }
     } catch (error) {
@@ -130,8 +135,7 @@ const QRScanner = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'environment',
-          advanced: [{ torch: true }]
+          facingMode: 'environment'
         }
       });
       
