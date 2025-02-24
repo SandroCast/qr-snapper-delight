@@ -14,6 +14,35 @@ const QRScanner = () => {
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+
+  const turnOnFlash = async () => {
+    try {
+      const track = trackRef.current;
+      if (track && 'imageCaptureEnabled' in track.getCapabilities()) {
+        const imageCapture = new (window as any).ImageCapture(track);
+        if (imageCapture.torch) {
+          await imageCapture.torch(true);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao ligar o flash:', error);
+    }
+  };
+
+  const turnOffFlash = async () => {
+    try {
+      const track = trackRef.current;
+      if (track && 'imageCaptureEnabled' in track.getCapabilities()) {
+        const imageCapture = new (window as any).ImageCapture(track);
+        if (imageCapture.torch) {
+          await imageCapture.torch(false);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao desligar o flash:', error);
+    }
+  };
 
   const captureFrame = async () => {
     try {
@@ -21,6 +50,8 @@ const QRScanner = () => {
       if (!qrElement) {
         throw new Error('Video element not found');
       }
+
+      await turnOnFlash();
 
       const canvas = document.createElement('canvas');
       canvas.width = qrElement.videoWidth;
@@ -40,12 +71,15 @@ const QRScanner = () => {
         directory: Directory.Documents
       });
 
+      await turnOffFlash();
+
       setPhotos(prev => [...prev, fileName]);
       setPhotoCount(prev => prev + 1);
       toast.success('Foto capturada e salva!');
     } catch (error) {
       console.error('Erro ao capturar foto:', error);
       toast.error('Erro ao capturar foto');
+      await turnOffFlash();
     }
   };
 
@@ -87,13 +121,44 @@ const QRScanner = () => {
     }
   };
 
-  const startScanning = () => {
+  const startScanning = async () => {
     if (!targetQRCode.trim()) {
       toast.error('Por favor, insira um texto para buscar no QR Code');
       return;
     }
 
-    setIsScanning(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          advanced: [{ torch: true }]
+        }
+      });
+      
+      const videoTrack = stream.getVideoTracks()[0];
+      trackRef.current = videoTrack;
+      
+      setIsScanning(true);
+    } catch (error) {
+      console.error('Erro ao iniciar câmera:', error);
+      setIsScanning(true);
+    }
+  };
+
+  const stopScanning = async () => {
+    if (trackRef.current) {
+      await turnOffFlash();
+      trackRef.current = null;
+    }
+    
+    if (scannerRef.current) {
+      scannerRef.current.clear();
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    setIsScanning(false);
+    processingRef.current = false;
   };
 
   const onScanSuccess = async (decodedText: string) => {
@@ -102,7 +167,6 @@ const QRScanner = () => {
       
       try {
         await scannerRef.current.pause();
-        
         await captureFrame();
         
         timeoutRef.current = setTimeout(async () => {
@@ -127,17 +191,6 @@ const QRScanner = () => {
     // Erros de scan são comuns e esperados, então não precisamos fazer nada aqui
   };
 
-  const stopScanning = () => {
-    if (scannerRef.current) {
-      scannerRef.current.clear();
-    }
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    setIsScanning(false);
-    processingRef.current = false;
-  };
-
   useEffect(() => {
     if (isScanning && !scannerRef.current) {
       scannerRef.current = new Html5QrcodeScanner(
@@ -149,13 +202,7 @@ const QRScanner = () => {
     }
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear();
-      }
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      processingRef.current = false;
+      stopScanning();
     };
   }, [isScanning, targetQRCode]);
 
