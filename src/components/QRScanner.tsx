@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -21,10 +20,13 @@ const QRScanner = () => {
     try {
       const track = trackRef.current;
       if (track) {
-        // @ts-ignore - Ignore type checking for fill-light mode
-        if (track.getCapabilities?.().torch) {
-          // @ts-ignore - Ignore type checking for fill-light mode
-          await track.applyConstraints({ fillLight: 'flash' });
+        const imageCapture = new ImageCapture(track);
+        const photoCapabilities = await imageCapture.getPhotoCapabilities();
+        
+        if (photoCapabilities?.fillLightMode?.includes('flash')) {
+          await track.applyConstraints({
+            advanced: [{ torch: true }]
+          });
         }
       }
     } catch (error) {
@@ -36,11 +38,9 @@ const QRScanner = () => {
     try {
       const track = trackRef.current;
       if (track) {
-        // @ts-ignore - Ignore type checking for fill-light mode
-        if (track.getCapabilities?.().torch) {
-          // @ts-ignore - Ignore type checking for fill-light mode
-          await track.applyConstraints({ fillLight: 'none' });
-        }
+        await track.applyConstraints({
+          advanced: [{ torch: false }]
+        });
       }
     } catch (error) {
       console.error('Erro ao desligar o flash:', error);
@@ -55,6 +55,8 @@ const QRScanner = () => {
       }
 
       await turnOnFlash();
+      
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const canvas = document.createElement('canvas');
       canvas.width = qrElement.videoWidth;
@@ -74,6 +76,7 @@ const QRScanner = () => {
         directory: Directory.Documents
       });
 
+      await new Promise(resolve => setTimeout(resolve, 500));
       await turnOffFlash();
 
       setPhotos(prev => [...prev, fileName]);
@@ -131,14 +134,16 @@ const QRScanner = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const constraints = {
         video: {
           facingMode: 'environment',
-          // @ts-ignore - Ignore type checking for fill-light mode
-          fillLight: 'none'
+          advanced: [{
+            torch: false
+          }]
         }
-      });
-      
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       const videoTrack = stream.getVideoTracks()[0];
       trackRef.current = videoTrack;
       
