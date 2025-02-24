@@ -46,13 +46,6 @@ const QRScanner = () => {
     }
 
     setIsScanning(true);
-    scannerRef.current = new Html5QrcodeScanner(
-      "qr-reader",
-      { fps: 10, qrbox: 250 },
-      false
-    );
-
-    scannerRef.current.render(onScanSuccess, onScanError);
   };
 
   const onScanSuccess = async (decodedText: string) => {
@@ -85,6 +78,15 @@ const QRScanner = () => {
   };
 
   useEffect(() => {
+    if (isScanning && !scannerRef.current) {
+      scannerRef.current = new Html5QrcodeScanner(
+        "qr-reader",
+        { fps: 10, qrbox: 250 },
+        false
+      );
+      scannerRef.current.render(onScanSuccess, onScanError);
+    }
+
     return () => {
       if (scannerRef.current) {
         scannerRef.current.clear();
@@ -93,7 +95,7 @@ const QRScanner = () => {
         clearTimeout(timeoutRef.current);
       }
     };
-  }, []);
+  }, [isScanning, targetQRCode]);
 
   return (
     <div className="min-h-screen p-6 bg-gradient-to-b from-gray-50 to-gray-100">
@@ -134,11 +136,9 @@ const QRScanner = () => {
             )}
           </div>
 
-          {isScanning && (
-            <div id="qr-reader" className="w-full">
-              {/* O scanner QR será renderizado aqui */}
-            </div>
-          )}
+          <div id="qr-reader" className={`w-full ${!isScanning ? 'hidden' : ''}`}>
+            {/* O scanner QR será renderizado aqui */}
+          </div>
 
           <div className="text-center text-sm text-gray-500">
             Fotos capturadas: {photoCount}
