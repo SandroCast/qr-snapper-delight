@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -23,21 +22,17 @@ const QRScanner = () => {
         throw new Error('Video element not found');
       }
 
-      // Criar um canvas para capturar o frame do vídeo
       const canvas = document.createElement('canvas');
       canvas.width = qrElement.videoWidth;
       canvas.height = qrElement.videoHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Could not get canvas context');
 
-      // Desenhar o frame atual do vídeo no canvas
       ctx.drawImage(qrElement, 0, 0, canvas.width, canvas.height);
 
-      // Converter para base64
       const base64Image = canvas.toDataURL('image/jpeg', 0.9);
       const base64Data = base64Image.split(',')[1];
 
-      // Salvar a imagem
       const fileName = `qr-snap-${Date.now()}.jpeg`;
       await Filesystem.writeFile({
         path: fileName,
@@ -56,23 +51,35 @@ const QRScanner = () => {
 
   const downloadAllPhotos = async () => {
     try {
-      for (const fileName of photos) {
-        const file = await Filesystem.readFile({
-          path: fileName,
-          directory: Directory.Documents
-        });
+      const downloadPhoto = async (fileName: string, index: number) => {
+        try {
+          const file = await Filesystem.readFile({
+            path: fileName,
+            directory: Directory.Documents
+          });
 
-        // Criar um link de download
-        const link = document.createElement('a');
-        link.href = `data:image/jpeg;base64,${file.data}`;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // Pequeno delay entre downloads
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+          const link = document.createElement('a');
+          link.href = `data:image/jpeg;base64,${file.data}`;
+          link.download = fileName;
+          document.body.appendChild(link);
+          
+          await new Promise(resolve => setTimeout(resolve, index * 1000));
+          
+          link.click();
+          document.body.removeChild(link);
+          
+          toast.success(`Foto ${index + 1} baixada com sucesso!`);
+        } catch (error) {
+          console.error(`Erro ao baixar foto ${fileName}:`, error);
+          toast.error(`Erro ao baixar foto ${index + 1}`);
+        }
+      };
+
+      await photos.reduce(async (promise, fileName, index) => {
+        await promise;
+        await downloadPhoto(fileName, index);
+      }, Promise.resolve());
+
       toast.success('Download de todas as fotos concluído!');
     } catch (error) {
       console.error('Erro ao baixar fotos:', error);
@@ -94,13 +101,10 @@ const QRScanner = () => {
       processingRef.current = true;
       
       try {
-        // Primeiro pausamos o scanner
         await scannerRef.current.pause();
         
-        // Capturar o frame atual
         await captureFrame();
         
-        // Aguarda 10 segundos antes de reiniciar o scanner
         timeoutRef.current = setTimeout(async () => {
           if (scannerRef.current) {
             try {
