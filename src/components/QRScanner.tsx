@@ -21,11 +21,10 @@ const QRScanner = () => {
     try {
       const track = trackRef.current;
       if (track) {
-        const capabilities = track.getCapabilities();
-        if ('torch' in capabilities) {
-          await track.applyConstraints({
-            advanced: [{ torch: true }]
-          });
+        // @ts-ignore - Ignore type checking for fill-light mode
+        if (track.getCapabilities?.().torch) {
+          // @ts-ignore - Ignore type checking for fill-light mode
+          await track.applyConstraints({ fillLight: 'flash' });
         }
       }
     } catch (error) {
@@ -37,11 +36,10 @@ const QRScanner = () => {
     try {
       const track = trackRef.current;
       if (track) {
-        const capabilities = track.getCapabilities();
-        if ('torch' in capabilities) {
-          await track.applyConstraints({
-            advanced: [{ torch: false }]
-          });
+        // @ts-ignore - Ignore type checking for fill-light mode
+        if (track.getCapabilities?.().torch) {
+          // @ts-ignore - Ignore type checking for fill-light mode
+          await track.applyConstraints({ fillLight: 'none' });
         }
       }
     } catch (error) {
@@ -135,7 +133,9 @@ const QRScanner = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'environment'
+          facingMode: 'environment',
+          // @ts-ignore - Ignore type checking for fill-light mode
+          fillLight: 'none'
         }
       });
       
