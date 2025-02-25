@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -5,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Download } from "lucide-react";
+
+interface CustomMediaTrackConstraints extends MediaTrackConstraints {
+  advanced?: {
+    // @ts-ignore
+    torch?: boolean;
+  }[];
+}
 
 const QRScanner = () => {
   const [targetQRCode, setTargetQRCode] = useState('');
@@ -20,14 +28,11 @@ const QRScanner = () => {
     try {
       const track = trackRef.current;
       if (track) {
-        const imageCapture = new ImageCapture(track);
-        const photoCapabilities = await imageCapture.getPhotoCapabilities();
-        
-        if (photoCapabilities?.fillLightMode?.includes('flash')) {
-          await track.applyConstraints({
-            advanced: [{ torch: true }]
-          });
-        }
+        const constraints: CustomMediaTrackConstraints = {
+          advanced: [{ torch: true }]
+        };
+        // @ts-ignore
+        await track.applyConstraints(constraints);
       }
     } catch (error) {
       console.error('Erro ao ligar o flash:', error);
@@ -38,9 +43,11 @@ const QRScanner = () => {
     try {
       const track = trackRef.current;
       if (track) {
-        await track.applyConstraints({
+        const constraints: CustomMediaTrackConstraints = {
           advanced: [{ torch: false }]
-        });
+        };
+        // @ts-ignore
+        await track.applyConstraints(constraints);
       }
     } catch (error) {
       console.error('Erro ao desligar o flash:', error);
@@ -56,6 +63,7 @@ const QRScanner = () => {
 
       await turnOnFlash();
       
+      // Pequeno delay para garantir que o flash esteja ligado
       await new Promise(resolve => setTimeout(resolve, 500));
 
       const canvas = document.createElement('canvas');
@@ -76,6 +84,7 @@ const QRScanner = () => {
         directory: Directory.Documents
       });
 
+      // Pequeno delay antes de desligar o flash
       await new Promise(resolve => setTimeout(resolve, 500));
       await turnOffFlash();
 
@@ -134,12 +143,9 @@ const QRScanner = () => {
     }
 
     try {
-      const constraints = {
+      const constraints: MediaStreamConstraints = {
         video: {
-          facingMode: 'environment',
-          advanced: [{
-            torch: false
-          }]
+          facingMode: 'environment'
         }
       };
 
