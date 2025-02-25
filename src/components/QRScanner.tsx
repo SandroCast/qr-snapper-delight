@@ -25,13 +25,16 @@ const QRScanner = () => {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
   const trackRef = useRef<MediaStreamTrack | null>(null);
-  const cooldownIntervalRef = useRef<NodeJS.Timer | null>(null);
+  const cooldownIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadCameras();
     return () => {
       if (scannerRef.current) {
         scannerRef.current.clear();
+      }
+      if (cooldownIntervalRef.current) {
+        window.clearInterval(cooldownIntervalRef.current);
       }
     };
   }, []);
@@ -55,14 +58,18 @@ const QRScanner = () => {
     setCooldownProgress(0);
     let progress = 0;
     
-    cooldownIntervalRef.current = setInterval(() => {
+    if (cooldownIntervalRef.current) {
+      window.clearInterval(cooldownIntervalRef.current);
+    }
+    
+    cooldownIntervalRef.current = window.setInterval(() => {
       progress += 1;
       setCooldownProgress(progress);
       
       if (progress >= 100) {
         setIsCooldown(false);
         if (cooldownIntervalRef.current) {
-          clearInterval(cooldownIntervalRef.current);
+          window.clearInterval(cooldownIntervalRef.current);
         }
       }
     }, 100); // Updates every 100ms for smooth progress
