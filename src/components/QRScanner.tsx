@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -10,6 +9,11 @@ import { toast } from "sonner";
 import { Camera, Download } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import JSZip from 'jszip';
+
+interface CustomImageCapture {
+  track: MediaStreamTrack;
+  setTorch: (enabled: boolean) => Promise<void>;
+}
 
 const QRScanner = () => {
   const [targetQRCode, setTargetQRCode] = useState('');
@@ -25,7 +29,7 @@ const QRScanner = () => {
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
-  const trackRef = useRef<MediaStreamTrack | null>(null);
+  const imageCaptureRef = useRef<CustomImageCapture | null>(null);
   const cooldownIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -92,23 +96,35 @@ const QRScanner = () => {
     
     try {
       const videoElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
-      const stream = videoElement?.srcObject as MediaStream;
-      const track = stream?.getVideoTracks()[0];
+      if (!videoElement?.srcObject) return;
+
+      const stream = videoElement.srcObject as MediaStream;
+      const track = stream.getVideoTracks()[0];
       
-      if (track && typeof track.getCapabilities === 'function') {
-        const capabilities = track.getCapabilities();
-        if (capabilities.torch) {
-          await track.applyConstraints({
-            advanced: [{
-              // Using type assertion to handle the torch property
-              torch: true as unknown as boolean
-            }]
-          });
-          trackRef.current = track;
-        } else {
-          toast.error('Este dispositivo não suporta lanterna');
-        }
+      if (!track) return;
+
+      // Create a custom interface to handle torch
+      if (!imageCaptureRef.current) {
+        imageCaptureRef.current = {
+          track,
+          setTorch: async (enabled: boolean) => {
+            try {
+              // Using any to bypass TypeScript constraints for experimental features
+              const constraints = {
+                advanced: [{ fillLightMode: enabled ? ['flash'] : ['none'] }]
+              } as any;
+              
+              await track.applyConstraints(constraints);
+              return true;
+            } catch (error) {
+              console.error('Erro ao controlar flash:', error);
+              return false;
+            }
+          }
+        };
       }
+
+      await imageCaptureRef.current.setTorch(true);
     } catch (error) {
       console.error('Erro ao ligar o flash:', error);
       toast.error('Não foi possível ativar a lanterna');
@@ -117,17 +133,8 @@ const QRScanner = () => {
 
   const turnOffFlash = async () => {
     try {
-      const track = trackRef.current;
-      if (track && typeof track.getCapabilities === 'function') {
-        const capabilities = track.getCapabilities();
-        if (capabilities.torch) {
-          await track.applyConstraints({
-            advanced: [{
-              // Using type assertion to handle the torch property
-              torch: false as unknown as boolean
-            }]
-          });
-        }
+      if (imageCaptureRef.current) {
+        await imageCaptureRef.current.setTorch(false);
       }
     } catch (error) {
       console.error('Erro ao desligar o flash:', error);
