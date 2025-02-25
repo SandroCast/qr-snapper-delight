@@ -95,11 +95,19 @@ const QRScanner = () => {
       const stream = videoElement?.srcObject as MediaStream;
       const track = stream?.getVideoTracks()[0];
       
-      if (track && 'applyConstraints' in track) {
-        await track.applyConstraints({
-          advanced: [{ torch: true }]
-        });
-        trackRef.current = track;
+      if (track && typeof track.getCapabilities === 'function') {
+        const capabilities = track.getCapabilities();
+        if (capabilities.torch) {
+          await track.applyConstraints({
+            advanced: [{
+              // Using type assertion to handle the torch property
+              torch: true as unknown as boolean
+            }]
+          });
+          trackRef.current = track;
+        } else {
+          toast.error('Este dispositivo não suporta lanterna');
+        }
       }
     } catch (error) {
       console.error('Erro ao ligar o flash:', error);
@@ -110,10 +118,16 @@ const QRScanner = () => {
   const turnOffFlash = async () => {
     try {
       const track = trackRef.current;
-      if (track && 'applyConstraints' in track) {
-        await track.applyConstraints({
-          advanced: [{ torch: false }]
-        });
+      if (track && typeof track.getCapabilities === 'function') {
+        const capabilities = track.getCapabilities();
+        if (capabilities.torch) {
+          await track.applyConstraints({
+            advanced: [{
+              // Using type assertion to handle the torch property
+              torch: false as unknown as boolean
+            }]
+          });
+        }
       }
     } catch (error) {
       console.error('Erro ao desligar o flash:', error);
