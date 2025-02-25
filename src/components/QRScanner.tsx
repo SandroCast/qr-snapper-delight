@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -90,14 +91,19 @@ const QRScanner = () => {
     if (!useFlash) return;
     
     try {
-      const track = trackRef.current;
+      const videoElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
+      const stream = videoElement?.srcObject as MediaStream;
+      const track = stream?.getVideoTracks()[0];
+      
       if (track && 'applyConstraints' in track) {
         await track.applyConstraints({
-          advanced: [{ torch: true }] as any
+          advanced: [{ torch: true }]
         });
+        trackRef.current = track;
       }
     } catch (error) {
       console.error('Erro ao ligar o flash:', error);
+      toast.error('Não foi possível ativar a lanterna');
     }
   };
 
@@ -106,7 +112,7 @@ const QRScanner = () => {
       const track = trackRef.current;
       if (track && 'applyConstraints' in track) {
         await track.applyConstraints({
-          advanced: [{ torch: false }] as any
+          advanced: [{ torch: false }]
         });
       }
     } catch (error) {
@@ -150,13 +156,13 @@ const QRScanner = () => {
         encoding: Encoding.UTF8
       });
 
-      if (useFlash) {
-        await turnOffFlash();
-      }
-
       setPhotos(prev => [...prev, fileName]);
       setPhotoCount(prev => prev + 1);
       toast.success('Foto capturada e salva!');
+
+      if (useFlash) {
+        await turnOffFlash();
+      }
       
       startCooldown();
       
@@ -186,8 +192,7 @@ const QRScanner = () => {
       const scanner = new Html5QrcodeScanner(
         "qr-reader",
         { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
+          fps: 10,
           videoConstraints: {
             deviceId: selectedCamera,
             facingMode: "environment"
