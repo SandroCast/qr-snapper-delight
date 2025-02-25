@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -32,6 +31,7 @@ const QRScanner = () => {
   const processingRef = useRef<boolean>(false);
   const imageCaptureRef = useRef<CustomImageCapture | null>(null);
   const cooldownIntervalRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     loadCameras();
@@ -42,8 +42,73 @@ const QRScanner = () => {
       if (cooldownIntervalRef.current) {
         window.clearInterval(cooldownIntervalRef.current);
       }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (isScanning && useFlash) {
+      turnOnFlash();
+    } else if (!useFlash) {
+      turnOffFlash();
+    }
+  }, [useFlash, isScanning]);
+
+  const turnOnFlash = async () => {
+    try {
+      const videoElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
+      if (!videoElement?.srcObject) {
+        console.log('No video source found');
+        return;
+      }
+
+      const stream = videoElement.srcObject as MediaStream;
+      streamRef.current = stream;
+      const track = stream.getVideoTracks()[0];
+      
+      if (!track) {
+        console.log('No video track found');
+        return;
+      }
+
+      console.log('Attempting to turn on flash');
+      
+      try {
+        // Try the standard way first
+        await track.applyConstraints({
+          advanced: [{ torch: true }] as any
+        });
+      } catch (e) {
+        console.log('Standard torch failed, trying alternative method');
+        // Try alternative method
+        await track.applyConstraints({
+          advanced: [{ fillLightMode: 'flash' }] as any
+        });
+      }
+      
+      console.log('Flash settings applied');
+    } catch (error) {
+      console.error('Error turning on flash:', error);
+      toast.error('Não foi possível ativar a lanterna');
+    }
+  };
+
+  const turnOffFlash = async () => {
+    try {
+      if (streamRef.current) {
+        const track = streamRef.current.getVideoTracks()[0];
+        if (track) {
+          await track.applyConstraints({
+            advanced: [{ torch: false }] as any
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error turning off flash:', error);
+    }
+  };
 
   const loadCameras = async () => {
     try {
@@ -90,56 +155,6 @@ const QRScanner = () => {
         startScanning();
       }
     }, 100); // Updates every 100ms for smooth progress
-  };
-
-  const turnOnFlash = async () => {
-    if (!useFlash) return;
-    
-    try {
-      const videoElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
-      if (!videoElement?.srcObject) return;
-
-      const stream = videoElement.srcObject as MediaStream;
-      const track = stream.getVideoTracks()[0];
-      
-      if (!track) return;
-
-      // Create a custom interface to handle torch
-      if (!imageCaptureRef.current) {
-        imageCaptureRef.current = {
-          track,
-          setTorch: async (enabled: boolean) => {
-            try {
-              // Using any to bypass TypeScript constraints for experimental features
-              const constraints = {
-                advanced: [{ fillLightMode: enabled ? ['flash'] : ['none'] }]
-              } as any;
-              
-              await track.applyConstraints(constraints);
-              // Don't return anything to match Promise<void>
-            } catch (error) {
-              console.error('Erro ao controlar flash:', error);
-              throw error; // Re-throw the error instead of returning false
-            }
-          }
-        };
-      }
-
-      await imageCaptureRef.current.setTorch(true);
-    } catch (error) {
-      console.error('Erro ao ligar o flash:', error);
-      toast.error('Não foi possível ativar a lanterna');
-    }
-  };
-
-  const turnOffFlash = async () => {
-    try {
-      if (imageCaptureRef.current) {
-        await imageCaptureRef.current.setTorch(false);
-      }
-    } catch (error) {
-      console.error('Erro ao desligar o flash:', error);
-    }
   };
 
   const captureFrame = async () => {
