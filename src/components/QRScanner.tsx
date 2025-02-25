@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -115,10 +116,10 @@ const QRScanner = () => {
               } as any;
               
               await track.applyConstraints(constraints);
-              return true;
+              // Don't return anything to match Promise<void>
             } catch (error) {
               console.error('Erro ao controlar flash:', error);
-              return false;
+              throw error; // Re-throw the error instead of returning false
             }
           }
         };
