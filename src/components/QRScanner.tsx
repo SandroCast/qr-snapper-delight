@@ -1,18 +1,10 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Download } from "lucide-react";
-
-interface CustomMediaTrackConstraints extends MediaTrackConstraints {
-  advanced?: {
-    // @ts-ignore
-    torch?: boolean;
-  }[];
-}
+import { Download, Camera } from "lucide-react";
 
 const QRScanner = () => {
   const [targetQRCode, setTargetQRCode] = useState('');
@@ -27,12 +19,10 @@ const QRScanner = () => {
   const turnOnFlash = async () => {
     try {
       const track = trackRef.current;
-      if (track) {
-        const constraints: CustomMediaTrackConstraints = {
-          advanced: [{ torch: true }]
-        };
-        // @ts-ignore
-        await track.applyConstraints(constraints);
+      if (track && 'applyConstraints' in track) {
+        await track.applyConstraints({
+          advanced: [{ fillLight: 'flash' }] as any
+        });
       }
     } catch (error) {
       console.error('Erro ao ligar o flash:', error);
@@ -42,12 +32,10 @@ const QRScanner = () => {
   const turnOffFlash = async () => {
     try {
       const track = trackRef.current;
-      if (track) {
-        const constraints: CustomMediaTrackConstraints = {
-          advanced: [{ torch: false }]
-        };
-        // @ts-ignore
-        await track.applyConstraints(constraints);
+      if (track && 'applyConstraints' in track) {
+        await track.applyConstraints({
+          advanced: [{ fillLight: 'none' }] as any
+        });
       }
     } catch (error) {
       console.error('Erro ao desligar o flash:', error);
@@ -62,8 +50,6 @@ const QRScanner = () => {
       }
 
       await turnOnFlash();
-      
-      // Pequeno delay para garantir que o flash esteja ligado
       await new Promise(resolve => setTimeout(resolve, 500));
 
       const canvas = document.createElement('canvas');
@@ -84,7 +70,6 @@ const QRScanner = () => {
         directory: Directory.Documents
       });
 
-      // Pequeno delay antes de desligar o flash
       await new Promise(resolve => setTimeout(resolve, 500));
       await turnOffFlash();
 
@@ -98,44 +83,6 @@ const QRScanner = () => {
     }
   };
 
-  const downloadAllPhotos = async () => {
-    try {
-      const downloadPhoto = async (fileName: string, index: number) => {
-        try {
-          const file = await Filesystem.readFile({
-            path: fileName,
-            directory: Directory.Documents
-          });
-
-          const link = document.createElement('a');
-          link.href = `data:image/jpeg;base64,${file.data}`;
-          link.download = fileName;
-          document.body.appendChild(link);
-          
-          await new Promise(resolve => setTimeout(resolve, index * 1000));
-          
-          link.click();
-          document.body.removeChild(link);
-          
-          toast.success(`Foto ${index + 1} baixada com sucesso!`);
-        } catch (error) {
-          console.error(`Erro ao baixar foto ${fileName}:`, error);
-          toast.error(`Erro ao baixar foto ${index + 1}`);
-        }
-      };
-
-      await photos.reduce(async (promise, fileName, index) => {
-        await promise;
-        await downloadPhoto(fileName, index);
-      }, Promise.resolve());
-
-      toast.success('Download de todas as fotos concluído!');
-    } catch (error) {
-      console.error('Erro ao baixar fotos:', error);
-      toast.error('Erro ao baixar fotos');
-    }
-  };
-
   const startScanning = async () => {
     if (!targetQRCode.trim()) {
       toast.error('Por favor, insira um texto para buscar no QR Code');
@@ -143,13 +90,12 @@ const QRScanner = () => {
     }
 
     try {
-      const constraints: MediaStreamConstraints = {
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment'
         }
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      });
+      
       const videoTrack = stream.getVideoTracks()[0];
       trackRef.current = videoTrack;
       
@@ -160,124 +106,138 @@ const QRScanner = () => {
     }
   };
 
-  const stopScanning = async () => {
-    if (trackRef.current) {
-      await turnOffFlash();
-      trackRef.current = null;
-    }
-    
-    if (scannerRef.current) {
-      scannerRef.current.clear();
-    }
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    setIsScanning(false);
-    processingRef.current = false;
-  };
-
-  const onScanSuccess = async (decodedText: string) => {
-    if (decodedText === targetQRCode && scannerRef.current && !processingRef.current) {
-      processingRef.current = true;
-      
-      try {
-        await scannerRef.current.pause();
-        await captureFrame();
-        
-        timeoutRef.current = setTimeout(async () => {
-          if (scannerRef.current) {
-            try {
-              await scannerRef.current.resume();
-              processingRef.current = false;
-            } catch (error) {
-              console.error('Erro ao resumir scanner:', error);
-              processingRef.current = false;
-            }
-          }
-        }, 10000);
-      } catch (error) {
-        console.error('Erro no processo de captura:', error);
-        processingRef.current = false;
-      }
-    }
-  };
-
-  const onScanError = (error: any) => {
-    // Erros de scan são comuns e esperados, então não precisamos fazer nada aqui
-  };
-
   useEffect(() => {
-    if (isScanning && !scannerRef.current) {
-      scannerRef.current = new Html5QrcodeScanner(
+    let html5QrcodeScanner: Html5QrcodeScanner | null = null;
+
+    const initializeScanner = () => {
+      html5QrcodeScanner = new Html5QrcodeScanner(
         "qr-reader",
-        { fps: 10, qrbox: 250 },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
         false
       );
-      scannerRef.current.render(onScanSuccess, onScanError);
+
+      scannerRef.current = html5QrcodeScanner;
+
+      html5QrcodeScanner.render(
+        (decodedText: string) => {
+          if (processingRef.current) {
+            return;
+          }
+
+          if (decodedText.includes(targetQRCode)) {
+            processingRef.current = true;
+            captureFrame()
+              .then(() => {
+                processingRef.current = false;
+                if (timeoutRef.current) {
+                  clearTimeout(timeoutRef.current);
+                }
+                timeoutRef.current = setTimeout(() => {
+                  if (html5QrcodeScanner) {
+                    html5QrcodeScanner.resume();
+                  }
+                }, 2000);
+              })
+              .catch(() => {
+                processingRef.current = false;
+              });
+            html5QrcodeScanner.pause(true);
+          }
+        },
+        (errorMessage: string) => {
+          console.log(`QR code scan failed: ${errorMessage}`);
+        }
+      );
+    };
+
+    if (isScanning) {
+      initializeScanner();
     }
 
     return () => {
-      stopScanning();
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear();
+      }
     };
   }, [isScanning, targetQRCode]);
 
-  return (
-    <div className="min-h-screen p-6 bg-gradient-to-b from-gray-50 to-gray-100">
-      <div className="max-w-md mx-auto space-y-6">
-        <div className="space-y-2 text-center">
-          <h1 className="text-3xl font-bold tracking-tighter">QR Snapper</h1>
-          <p className="text-gray-500">Captura automática de fotos por QR Code</p>
-        </div>
+  const downloadPhotos = async () => {
+    try {
+      if (photos.length === 0) {
+        toast.error('Nenhuma foto para baixar.');
+        return;
+      }
 
-        <div className="p-6 bg-white rounded-lg shadow-lg space-y-4">
+      const zip = require('jszip')();
+      for (const photo of photos) {
+        const file = await Filesystem.readFile({
+          path: photo,
+          directory: Directory.Documents,
+          encoding: 'base64'
+        });
+        zip.file(photo, file.data, { base64: true });
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'qr-snaps.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success('Fotos baixadas com sucesso!');
+    } catch (error) {
+      console.error('Erro ao baixar fotos:', error);
+      toast.error('Erro ao baixar fotos.');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
+        <div className="space-y-6">
+          {/* Área do preview da câmera */}
+          <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden">
+            <div id="qr-reader" className="w-full h-full"></div>
+          </div>
+          
+          {/* Input para o número */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Texto do QR Code</label>
             <Input
               type="text"
-              placeholder="Digite o texto do QR Code"
+              placeholder="Digite o número do código QR"
+              className="w-full border-2 border-gray-300"
               value={targetQRCode}
               onChange={(e) => setTargetQRCode(e.target.value)}
-              disabled={isScanning}
-              className="w-full"
             />
           </div>
 
-          <div className="flex flex-col gap-2">
-            <div className="flex justify-center">
-              {!isScanning ? (
-                <Button
-                  onClick={startScanning}
-                  className="w-full bg-green-500 hover:bg-green-600 text-white"
-                >
-                  Iniciar Scanner
-                </Button>
-              ) : (
-                <Button
-                  onClick={stopScanning}
-                  className="w-full bg-red-500 hover:bg-red-600 text-white"
-                >
-                  Parar Scanner
-                </Button>
-              )}
-            </div>
-
-            {photoCount > 0 && (
-              <Button
-                onClick={downloadAllPhotos}
-                className="w-full flex items-center justify-center gap-2"
-                variant="outline"
-              >
-                <Download size={16} />
-                Baixar {photoCount} foto{photoCount !== 1 ? 's' : ''}
-              </Button>
-            )}
+          {/* Botões de ação */}
+          <div className="space-y-3">
+            <Button 
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg flex items-center justify-center gap-2"
+              onClick={startScanning}
+              disabled={isScanning}
+            >
+              <Camera className="w-5 h-5" />
+              {isScanning ? 'Scanner Ligado' : 'Iniciar Scanner'}
+            </Button>
+            
+            <Button 
+              variant="outline"
+              className="w-full border-2 border-gray-300 py-3 rounded-lg"
+              onClick={downloadPhotos}
+            >
+              <Download className="w-5 h-5" />
+              Download Fotos
+            </Button>
           </div>
 
-          <div id="qr-reader" className={`w-full ${!isScanning ? 'hidden' : ''}`}>
-            {/* O scanner QR será renderizado aqui */}
-          </div>
-
-          <div className="text-center text-sm text-gray-500">
+          {/* Contador de fotos */}
+          <div className="text-center text-gray-600">
             Fotos capturadas: {photoCount}
           </div>
         </div>
