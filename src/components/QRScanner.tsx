@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -9,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Camera, Download } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import JSZip from 'jszip';
 
 const QRScanner = () => {
   const [targetQRCode, setTargetQRCode] = useState('');
@@ -53,10 +53,20 @@ const QRScanner = () => {
     }
   };
 
+  const stopScanning = () => {
+    if (scannerRef.current) {
+      scannerRef.current.clear();
+      scannerRef.current = null;
+    }
+    setIsScanning(false);
+  };
+
   const startCooldown = () => {
     setIsCooldown(true);
     setCooldownProgress(0);
     let progress = 0;
+    
+    stopScanning();
     
     if (cooldownIntervalRef.current) {
       window.clearInterval(cooldownIntervalRef.current);
@@ -71,6 +81,7 @@ const QRScanner = () => {
         if (cooldownIntervalRef.current) {
           window.clearInterval(cooldownIntervalRef.current);
         }
+        startScanning();
       }
     }, 100); // Updates every 100ms for smooth progress
   };
@@ -147,7 +158,6 @@ const QRScanner = () => {
       setPhotoCount(prev => prev + 1);
       toast.success('Foto capturada e salva!');
       
-      // Inicia o cooldown de 10 segundos
       startCooldown();
       
     } catch (error) {
@@ -164,6 +174,11 @@ const QRScanner = () => {
     }
 
     try {
+      if (isCooldown) {
+        toast.error('Aguarde o fim do período de espera');
+        return;
+      }
+
       if (scannerRef.current) {
         scannerRef.current.clear();
       }
@@ -210,7 +225,7 @@ const QRScanner = () => {
         return;
       }
 
-      const zip = require('jszip')();
+      const zip = new JSZip();
       
       for (const photo of photos) {
         const file = await Filesystem.readFile({
@@ -242,12 +257,10 @@ const QRScanner = () => {
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
         <div className="space-y-6">
-          {/* Área do preview da câmera */}
           <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden">
             <div id="qr-reader" className="w-full h-full"></div>
           </div>
           
-          {/* Input para o texto do QR Code */}
           <div className="space-y-2">
             <Input
               type="text"
@@ -258,7 +271,6 @@ const QRScanner = () => {
             />
           </div>
 
-          {/* Controles da câmera */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Usar lanterna</span>
@@ -285,7 +297,6 @@ const QRScanner = () => {
             </div>
           </div>
 
-          {/* Barra de progresso do cooldown */}
           {isCooldown && (
             <div className="space-y-2">
               <div className="text-sm text-center">
@@ -295,7 +306,6 @@ const QRScanner = () => {
             </div>
           )}
 
-          {/* Botões de ação */}
           <div className="space-y-3">
             <Button 
               className="w-full"
