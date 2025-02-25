@@ -1,27 +1,81 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Download, Camera } from "lucide-react";
+import { Camera, Download } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 const QRScanner = () => {
   const [targetQRCode, setTargetQRCode] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [photoCount, setPhotoCount] = useState(0);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [useFlash, setUseFlash] = useState(false);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCamera, setSelectedCamera] = useState('');
+  const [cooldownProgress, setCooldownProgress] = useState(100);
+  const [isCooldown, setIsCooldown] = useState(false);
+  
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
   const trackRef = useRef<MediaStreamTrack | null>(null);
+  const cooldownIntervalRef = useRef<NodeJS.Timer | null>(null);
+
+  useEffect(() => {
+    loadCameras();
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear();
+      }
+    };
+  }, []);
+
+  const loadCameras = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      setCameras(videoDevices);
+      if (videoDevices.length > 0) {
+        setSelectedCamera(videoDevices[0].deviceId);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar câmeras:', error);
+      toast.error('Erro ao carregar câmeras disponíveis');
+    }
+  };
+
+  const startCooldown = () => {
+    setIsCooldown(true);
+    setCooldownProgress(0);
+    let progress = 0;
+    
+    cooldownIntervalRef.current = setInterval(() => {
+      progress += 1;
+      setCooldownProgress(progress);
+      
+      if (progress >= 100) {
+        setIsCooldown(false);
+        if (cooldownIntervalRef.current) {
+          clearInterval(cooldownIntervalRef.current);
+        }
+      }
+    }, 100); // Updates every 100ms for smooth progress
+  };
 
   const turnOnFlash = async () => {
+    if (!useFlash) return;
+    
     try {
       const track = trackRef.current;
       if (track && 'applyConstraints' in track) {
         await track.applyConstraints({
-          advanced: [{ fillLight: 'flash' }] as any
+          advanced: [{ torch: true }] as any
         });
       }
     } catch (error) {
@@ -34,7 +88,7 @@ const QRScanner = () => {
       const track = trackRef.current;
       if (track && 'applyConstraints' in track) {
         await track.applyConstraints({
-          advanced: [{ fillLight: 'none' }] as any
+          advanced: [{ torch: false }] as any
         });
       }
     } catch (error) {
@@ -44,13 +98,20 @@ const QRScanner = () => {
 
   const captureFrame = async () => {
     try {
+      if (isCooldown) {
+        toast.error('Aguarde o tempo de espera para capturar novamente');
+        return;
+      }
+
       const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
       if (!qrElement) {
         throw new Error('Video element not found');
       }
 
-      await turnOnFlash();
-      await new Promise(resolve => setTimeout(resolve, 500));
+      if (useFlash) {
+        await turnOnFlash();
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos para estabilizar
+      }
 
       const canvas = document.createElement('canvas');
       canvas.width = qrElement.videoWidth;
@@ -67,19 +128,25 @@ const QRScanner = () => {
       await Filesystem.writeFile({
         path: fileName,
         data: base64Data,
-        directory: Directory.Documents
+        directory: Directory.Documents,
+        encoding: Encoding.UTF8
       });
 
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await turnOffFlash();
+      if (useFlash) {
+        await turnOffFlash();
+      }
 
       setPhotos(prev => [...prev, fileName]);
       setPhotoCount(prev => prev + 1);
       toast.success('Foto capturada e salva!');
+      
+      // Inicia o cooldown de 10 segundos
+      startCooldown();
+      
     } catch (error) {
       console.error('Erro ao capturar foto:', error);
       toast.error('Erro ao capturar foto');
-      await turnOffFlash();
+      if (useFlash) await turnOffFlash();
     }
   };
 
@@ -90,90 +157,59 @@ const QRScanner = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment'
-        }
-      });
-      
-      const videoTrack = stream.getVideoTracks()[0];
-      trackRef.current = videoTrack;
-      
-      setIsScanning(true);
-    } catch (error) {
-      console.error('Erro ao iniciar câmera:', error);
-      setIsScanning(true);
-    }
-  };
+      if (scannerRef.current) {
+        scannerRef.current.clear();
+      }
 
-  useEffect(() => {
-    let html5QrcodeScanner: Html5QrcodeScanner | null = null;
-
-    const initializeScanner = () => {
-      html5QrcodeScanner = new Html5QrcodeScanner(
+      const scanner = new Html5QrcodeScanner(
         "qr-reader",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        { 
+          fps: 10, 
+          qrbox: { width: 250, height: 250 },
+          videoConstraints: {
+            deviceId: selectedCamera,
+            facingMode: "environment"
+          }
+        },
         false
       );
 
-      scannerRef.current = html5QrcodeScanner;
+      scannerRef.current = scanner;
 
-      html5QrcodeScanner.render(
-        (decodedText: string) => {
-          if (processingRef.current) {
-            return;
-          }
+      scanner.render((decodedText) => {
+        if (processingRef.current || isCooldown) return;
 
-          if (decodedText.includes(targetQRCode)) {
-            processingRef.current = true;
-            captureFrame()
-              .then(() => {
-                processingRef.current = false;
-                if (timeoutRef.current) {
-                  clearTimeout(timeoutRef.current);
-                }
-                timeoutRef.current = setTimeout(() => {
-                  if (html5QrcodeScanner) {
-                    html5QrcodeScanner.resume();
-                  }
-                }, 2000);
-              })
-              .catch(() => {
-                processingRef.current = false;
-              });
-            html5QrcodeScanner.pause(true);
-          }
-        },
-        (errorMessage: string) => {
-          console.log(`QR code scan failed: ${errorMessage}`);
+        if (decodedText === targetQRCode) {
+          processingRef.current = true;
+          captureFrame().finally(() => {
+            processingRef.current = false;
+          });
         }
-      );
-    };
+      }, (error) => {
+        console.log(error);
+      });
 
-    if (isScanning) {
-      initializeScanner();
+      setIsScanning(true);
+    } catch (error) {
+      console.error('Erro ao iniciar scanner:', error);
+      toast.error('Erro ao iniciar scanner');
     }
-
-    return () => {
-      if (html5QrcodeScanner) {
-        html5QrcodeScanner.clear();
-      }
-    };
-  }, [isScanning, targetQRCode]);
+  };
 
   const downloadPhotos = async () => {
     try {
       if (photos.length === 0) {
-        toast.error('Nenhuma foto para baixar.');
+        toast.error('Nenhuma foto para baixar');
         return;
       }
 
       const zip = require('jszip')();
+      
       for (const photo of photos) {
         const file = await Filesystem.readFile({
           path: photo,
           directory: Directory.Documents,
-          encoding: 'base64'
+          encoding: Encoding.UTF8
         });
         zip.file(photo, file.data, { base64: true });
       }
@@ -191,7 +227,7 @@ const QRScanner = () => {
       toast.success('Fotos baixadas com sucesso!');
     } catch (error) {
       console.error('Erro ao baixar fotos:', error);
-      toast.error('Erro ao baixar fotos.');
+      toast.error('Erro ao baixar fotos');
     }
   };
 
@@ -204,41 +240,74 @@ const QRScanner = () => {
             <div id="qr-reader" className="w-full h-full"></div>
           </div>
           
-          {/* Input para o número */}
+          {/* Input para o texto do QR Code */}
           <div className="space-y-2">
             <Input
               type="text"
-              placeholder="Digite o número do código QR"
-              className="w-full border-2 border-gray-300"
+              placeholder="Digite o texto do QR Code"
               value={targetQRCode}
               onChange={(e) => setTargetQRCode(e.target.value)}
+              className="w-full"
             />
           </div>
+
+          {/* Controles da câmera */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Usar lanterna</span>
+              <Switch
+                checked={useFlash}
+                onCheckedChange={setUseFlash}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Selecionar câmera</label>
+              <Select value={selectedCamera} onValueChange={setSelectedCamera}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma câmera" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cameras.map((camera) => (
+                    <SelectItem key={camera.deviceId} value={camera.deviceId}>
+                      {camera.label || `Câmera ${camera.deviceId.slice(0, 5)}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Barra de progresso do cooldown */}
+          {isCooldown && (
+            <div className="space-y-2">
+              <div className="text-sm text-center">
+                Aguarde {Math.ceil((100 - cooldownProgress) / 10)} segundos
+              </div>
+              <Progress value={cooldownProgress} className="w-full" />
+            </div>
+          )}
 
           {/* Botões de ação */}
           <div className="space-y-3">
             <Button 
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg flex items-center justify-center gap-2"
+              className="w-full"
               onClick={startScanning}
               disabled={isScanning}
             >
-              <Camera className="w-5 h-5" />
-              {isScanning ? 'Scanner Ligado' : 'Iniciar Scanner'}
+              <Camera className="mr-2 h-4 w-4" />
+              {isScanning ? 'Scanner Ativo' : 'Iniciar Scanner'}
             </Button>
             
             <Button 
               variant="outline"
-              className="w-full border-2 border-gray-300 py-3 rounded-lg"
+              className="w-full"
               onClick={downloadPhotos}
+              disabled={photos.length === 0}
             >
-              <Download className="w-5 h-5" />
-              Download Fotos
+              <Download className="mr-2 h-4 w-4" />
+              Download Fotos ({photoCount})
             </Button>
-          </div>
-
-          {/* Contador de fotos */}
-          <div className="text-center text-gray-600">
-            Fotos capturadas: {photoCount}
           </div>
         </div>
       </div>
