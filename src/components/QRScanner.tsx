@@ -232,7 +232,9 @@ const QRScanner = () => {
           fps: 10,
           videoConstraints: {
             deviceId: selectedCamera,
-            facingMode: "environment"
+            facingMode: "environment",
+            width: { ideal: 1920 },  // Define um valor ideal para a largura
+            height: { ideal: 1080 }  // Define um valor ideal para a altura
           }
         },
         false
