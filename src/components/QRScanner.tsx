@@ -10,6 +10,31 @@ import { Camera, Download } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import JSZip from 'jszip';
 
+async function preventScreenLock() {
+  if ("wakeLock" in navigator) {
+    try {
+      let wakeLock = await navigator.wakeLock.request("screen");
+      console.log("Wake Lock ativado!");
+
+      // Se perder o Wake Lock ao minimizar, reativa ao voltar
+      document.addEventListener("visibilitychange", async () => {
+        if (document.visibilityState === "visible") {
+          try {
+            wakeLock = await navigator.wakeLock.request("screen");
+            console.log("Wake Lock reativado!");
+          } catch (err) {
+            console.error("Erro ao reativar Wake Lock:", err);
+          }
+        }
+      });
+    } catch (err) {
+      console.error("Wake Lock falhou:", err);
+    }
+  } else {
+    console.warn("Wake Lock API não suportada no navegador.");
+  }
+}
+
 interface CustomImageCapture {
   track: MediaStreamTrack;
   setTorch: (enabled: boolean) => Promise<void>;
@@ -35,6 +60,8 @@ const QRScanner = () => {
 
   useEffect(() => {
     loadCameras();
+    preventScreenLock();
+    
     return () => {
       if (scannerRef.current) {
         scannerRef.current.clear();
