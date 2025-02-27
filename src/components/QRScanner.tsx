@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Camera, Download } from "lucide-react";
+import { Camera, Download, Video } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import JSZip from 'jszip';
 
@@ -50,7 +50,9 @@ const QRScanner = () => {
   const [selectedCamera, setSelectedCamera] = useState('');
   const [cooldownProgress, setCooldownProgress] = useState(100);
   const [isCooldown, setIsCooldown] = useState(false);
-  
+  const [generatingTimelapse, setGeneratingTimelapse] = useState(false);
+  const [timelapseSpeed, setTimelapseSpeed] = useState(1);
+
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
@@ -324,6 +326,98 @@ const QRScanner = () => {
     }
   };
 
+  const createTimelapse = async () => {
+    if (photos.length === 0) {
+      toast.error('Nenhuma foto disponível para criar o timelapse');
+      return;
+    }
+
+    try {
+      setGeneratingTimelapse(true);
+      toast.info('Iniciando geração do timelapse...');
+
+      // Create canvas for frame composition
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        throw new Error('Could not get canvas context');
+      }
+
+      // Load first image to set dimensions
+      const firstImageData = await Filesystem.readFile({
+        path: photos[0],
+        directory: Directory.Documents,
+        encoding: Encoding.UTF8
+      });
+
+      // Set canvas size from first image
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = `data:image/jpeg;base64,${firstImageData.data}`;
+      });
+
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      // Setup MediaRecorder with canvas stream
+      const stream = canvas.captureStream(30); // 30fps
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp9',
+        videoBitsPerSecond: 5000000 // 5Mbps for good quality
+      });
+
+      const chunks: Blob[] = [];
+      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+      
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'timelapse.webm';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setGeneratingTimelapse(false);
+        toast.success('Timelapse gerado com sucesso!');
+      };
+
+      mediaRecorder.start();
+
+      // Process each photo
+      for (const photo of photos) {
+        const imageData = await Filesystem.readFile({
+          path: photo,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8
+        });
+
+        await new Promise<void>((resolve) => {
+          const frameImg = new Image();
+          frameImg.onload = () => {
+            ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+            resolve();
+          };
+          frameImg.src = `data:image/jpeg;base64,${imageData.data}`;
+        });
+
+        // Frame duration based on speed
+        await new Promise(resolve => setTimeout(resolve, 1000 / (30 * timelapseSpeed)));
+      }
+
+      mediaRecorder.stop();
+
+    } catch (error) {
+      console.error('Erro ao gerar timelapse:', error);
+      toast.error('Erro ao gerar timelapse');
+      setGeneratingTimelapse(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
@@ -366,6 +460,24 @@ const QRScanner = () => {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Velocidade do Timelapse</label>
+              <Select 
+                value={timelapseSpeed.toString()} 
+                onValueChange={(value) => setTimelapseSpeed(Number(value))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a velocidade" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0.5">0.5x (Lento)</SelectItem>
+                  <SelectItem value="1">1x (Normal)</SelectItem>
+                  <SelectItem value="2">2x (Rápido)</SelectItem>
+                  <SelectItem value="4">4x (Muito Rápido)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {isCooldown && (
@@ -380,11 +492,10 @@ const QRScanner = () => {
           <div className="space-y-3">
             <Button 
               className="w-full"
-              onClick={startScanning}
-              disabled={isScanning}
+              onClick={isScanning ? stopScanning : startScanning}
             >
               <Camera className="mr-2 h-4 w-4" />
-              {isScanning ? 'Scanner Ativo' : 'Iniciar Scanner'}
+              {isScanning ? 'Parar Scanner' : 'Iniciar Scanner'}
             </Button>
             
             <Button 
@@ -395,6 +506,16 @@ const QRScanner = () => {
             >
               <Download className="mr-2 h-4 w-4" />
               Download Fotos ({photoCount})
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={createTimelapse}
+              disabled={photos.length === 0 || generatingTimelapse}
+            >
+              <Video className="mr-2 h-4 w-4" />
+              {generatingTimelapse ? 'Gerando Timelapse...' : 'Criar Timelapse'}
             </Button>
           </div>
         </div>
