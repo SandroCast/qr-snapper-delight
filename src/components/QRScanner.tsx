@@ -336,7 +336,6 @@ const QRScanner = () => {
       setGeneratingTimelapse(true);
       toast.info('Iniciando geração do timelapse...');
 
-      // Create canvas for frame composition
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
@@ -344,14 +343,12 @@ const QRScanner = () => {
         throw new Error('Could not get canvas context');
       }
 
-      // Load first image to set dimensions
       const firstImageData = await Filesystem.readFile({
         path: photos[0],
         directory: Directory.Documents,
         encoding: Encoding.UTF8
       });
 
-      // Set canvas size from first image
       const img = new Image();
       await new Promise((resolve, reject) => {
         img.onload = resolve;
@@ -362,22 +359,43 @@ const QRScanner = () => {
       canvas.width = img.width;
       canvas.height = img.height;
 
-      // Setup MediaRecorder with canvas stream
+      let mimeType = '';
+      let fileExtension = '';
+      
+      if (MediaRecorder.isTypeSupported('video/mp4;codecs=h264')) {
+        mimeType = 'video/mp4;codecs=h264';
+        fileExtension = 'mp4';
+      } else if (MediaRecorder.isTypeSupported('video/webm;codecs=h264')) {
+        mimeType = 'video/webm;codecs=h264';
+        fileExtension = 'webm';
+      } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+        mimeType = 'video/webm;codecs=vp9';
+        fileExtension = 'webm';
+      } else {
+        mimeType = 'video/webm';
+        fileExtension = 'webm';
+      }
+
       const stream = canvas.captureStream(30); // 30fps
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 5000000 // 5Mbps for good quality
+        mimeType: mimeType,
+        videoBitsPerSecond: 8000000 // 8Mbps para melhor qualidade
       });
 
       const chunks: Blob[] = [];
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+      
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
       
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
+        const blob = new Blob(chunks, { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'timelapse.webm';
+        a.download = `timelapse.${fileExtension}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -388,7 +406,9 @@ const QRScanner = () => {
 
       mediaRecorder.start();
 
-      // Process each photo
+      let frameCount = 0;
+      const totalFrames = photos.length;
+
       for (const photo of photos) {
         const imageData = await Filesystem.readFile({
           path: photo,
@@ -400,15 +420,23 @@ const QRScanner = () => {
           const frameImg = new Image();
           frameImg.onload = () => {
             ctx.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+            
+            frameCount++;
+            const progress = Math.round((frameCount / totalFrames) * 100);
+            toast.info(`Processando frames: ${progress}%`, {
+              id: 'timelapse-progress'
+            });
+            
             resolve();
           };
           frameImg.src = `data:image/jpeg;base64,${imageData.data}`;
         });
 
-        // Frame duration based on speed
-        await new Promise(resolve => setTimeout(resolve, 1000 / (30 * timelapseSpeed)));
+        await new Promise(resolve => setTimeout(resolve, 100 / timelapseSpeed));
       }
 
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       mediaRecorder.stop();
 
     } catch (error) {
