@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -481,7 +482,7 @@ const QRScanner = () => {
                 </SelectTrigger>
                 <SelectContent>
                   {cameras.map((camera) => (
-                    <SelectItem key={camera.deviceId} value={camera.deviceId}>
+                    <SelectItem key={camera.deviceId} value={camera.deviceId || "default"}>
                       {camera.label || `Câmera ${camera.deviceId.slice(0, 5)}`}
                     </SelectItem>
                   ))}
