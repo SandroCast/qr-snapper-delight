@@ -127,9 +127,7 @@ const QRScanner = () => {
   // Quando a região de escaneamento muda, atualiza o scanner
   useEffect(() => {
     if (isScanning && html5QrcodeRef.current) {
-      // Se estiver escaneando e a região mudar, para e reinicia o scanner
-      const config = calculateScanRegion();
-      // Precisamos parar e reiniciar para aplicar o novo tamanho/posição
+      // Se estiver escaneando e a região mudar, para e reinicia o scanner com a nova posição
       stopScanning();
       startScanning();
     }
@@ -236,19 +234,27 @@ const QRScanner = () => {
     }, 100); // Updates every 100ms for smooth progress
   };
 
-  // Calcular a região de escaneamento em pixels (valores absolutos)
+  // Calcular a região de escaneamento em pixels absolutos
   const calculateScanRegion = () => {
+    // Converter as porcentagens em valores absolutos de pixels
     const regionPixels = {
-      x: Math.floor(scannerContainerSize.width * scanRegion.x / 100),
-      y: Math.floor(scannerContainerSize.height * scanRegion.y / 100),
       width: Math.floor(scannerContainerSize.width * scanRegion.width / 100),
       height: Math.floor(scannerContainerSize.height * scanRegion.height / 100)
     };
     
     // Garantir que a região tem pelo menos 100x100 pixels para melhor detecção
-    return regionPixels.width < 100 || regionPixels.height < 100 
-      ? { width: Math.max(100, regionPixels.width), height: Math.max(100, regionPixels.height) }
-      : { width: regionPixels.width, height: regionPixels.height };
+    return {
+      width: Math.max(100, regionPixels.width),
+      height: Math.max(100, regionPixels.height)
+    };
+  };
+
+  // Calcular a posição da região de escaneamento em pixels absolutos
+  const calculateScanPosition = () => {
+    return {
+      x: Math.floor(scannerContainerSize.width * scanRegion.x / 100),
+      y: Math.floor(scannerContainerSize.height * scanRegion.y / 100)
+    };
   };
 
   const captureFrame = async () => {
@@ -330,14 +336,21 @@ const QRScanner = () => {
       }
 
       // Configurações do scanner
+      const region = calculateScanRegion();
+      const position = calculateScanPosition();
+    
       const qrConfig = {
         fps: 10,
-        qrbox: calculateScanRegion(),
+        qrbox: {
+          width: region.width,
+          height: region.height,
+          x: position.x,  // Posição X da área de escaneamento
+          y: position.y   // Posição Y da área de escaneamento
+        },
         aspectRatio: 1.0,
         disableFlip: false,
-        // Desabilitar bordas extras do HTML5-QRCode
         showTorchButtonIfSupported: false,
-        showZoomSliderIfSupported: false
+        showZoomSliderIfSupported: false,
       };
 
       await html5Qrcode.start(
@@ -367,7 +380,7 @@ const QRScanner = () => {
         qrBoxElements.forEach(element => {
           element.remove();
         });
-      }, 500);
+      }, 100);
 
       setIsScanning(true);
     } catch (error) {
