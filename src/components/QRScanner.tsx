@@ -54,21 +54,15 @@ const QRScanner = () => {
   const [generatingTimelapse, setGeneratingTimelapse] = useState(false);
   const [timelapseSpeed, setTimelapseSpeed] = useState(1);
   const [showScanControls, setShowScanControls] = useState(false);
-  const [lastQrConfig, setLastQrConfig] = useState<any>(null);
   
-  // Região do scanner
-  const [scanRegion, setScanRegion] = useState({
-    x: 25, // porcentagem da largura
-    y: 25, // porcentagem da altura
-    width: 50, // porcentagem da largura
-    height: 50, // porcentagem da altura
+  // Região do scanner (em pixels)
+  const [scanBox, setScanBox] = useState({
+    width: 200,
+    height: 200,
+    x: 0,
+    y: 0
   });
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const [resizeDirection, setResizeDirection] = useState('');
-  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
-  const [scannerContainerSize, setScannerContainerSize] = useState({ width: 0, height: 0 });
-
+  
   const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
@@ -76,72 +70,16 @@ const QRScanner = () => {
   const cooldownIntervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scannerContainerRef = useRef<HTMLDivElement>(null);
-  const scannerInitializedRef = useRef<boolean>(false);
-  const removalIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadCameras();
     preventScreenLock();
     
-    // Medir o tamanho do container do scanner
-    const updateContainerSize = () => {
-      if (scannerContainerRef.current) {
-        setScannerContainerSize({
-          width: scannerContainerRef.current.clientWidth,
-          height: scannerContainerRef.current.clientHeight
-        });
-      }
-    };
+    // Centralizar inicialmente a área de escaneamento
+    updateScanBoxPosition();
     
-    updateContainerSize();
-    window.addEventListener('resize', updateContainerSize);
-    
-    // Adicionar estilo CSS para ocultar o elemento com borda branca
-    const styleElement = document.createElement('style');
-    styleElement.textContent = `
-      [style*="border: 6px solid rgb(255, 255, 255)"],
-      [style*="position: absolute; border: 6px solid rgb(255, 255, 255)"],
-      div[style*="border: 6px solid rgb(255, 255, 255)"] {
-        visibility: hidden !important;
-        opacity: 0 !important;
-        display: none !important;
-      }
-      
-      #qr-reader__scan_region {
-        display: none !important;
-      }
-      
-      #qr-reader__dashboard button {
-        display: none !important;
-      }
-      
-      #qr-reader__dashboard {
-        padding: 0 !important;
-        margin: 0 !important;
-      }
-      
-      #qr-reader__status_span {
-        display: none !important;
-      }
-      
-      #qr-reader__dashboard_section_csr {
-        padding: 0 !important;
-      }
-      
-      #qr-reader__dashboard_section_swaplink {
-        display: none !important;
-      }
-      
-      #qr-reader__camera_selection {
-        display: none !important;
-      }
-      
-      #qr-reader {
-        border: none !important;
-        padding: 0 !important;
-      }
-    `;
-    document.head.appendChild(styleElement);
+    // Atualizar quando o tamanho da janela mudar
+    window.addEventListener('resize', updateScanBoxPosition);
     
     return () => {
       if (html5QrcodeRef.current) {
@@ -150,16 +88,26 @@ const QRScanner = () => {
       if (cooldownIntervalRef.current) {
         window.clearInterval(cooldownIntervalRef.current);
       }
-      if (removalIntervalRef.current) {
-        clearInterval(removalIntervalRef.current);
-      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
-      window.removeEventListener('resize', updateContainerSize);
-      document.head.removeChild(styleElement);
+      window.removeEventListener('resize', updateScanBoxPosition);
     };
   }, []);
+
+  // Centralizar a caixa de escaneamento quando o tamanho mudar
+  const updateScanBoxPosition = () => {
+    if (scannerContainerRef.current) {
+      const containerWidth = scannerContainerRef.current.clientWidth;
+      const containerHeight = scannerContainerRef.current.clientHeight;
+      
+      setScanBox(prev => ({
+        ...prev,
+        x: (containerWidth - prev.width) / 2,
+        y: (containerHeight - prev.height) / 2
+      }));
+    }
+  };
 
   useEffect(() => {
     if (isScanning && useFlash) {
@@ -173,34 +121,19 @@ const QRScanner = () => {
   useEffect(() => {
     if (isScanning) {
       setShowScanControls(true);
-      
-      // Configurar intervalo para remover continuamente os elementos indesejados
-      if (removalIntervalRef.current) {
-        clearInterval(removalIntervalRef.current);
-      }
-      
-      removalIntervalRef.current = setInterval(() => {
-        removeExtraScanRegions();
-      }, 100); // Verificar e remover a cada 100ms
-      
     } else {
       setShowScanControls(false);
-      if (removalIntervalRef.current) {
-        clearInterval(removalIntervalRef.current);
-      }
     }
   }, [isScanning]);
 
-  // Quando a região de escaneamento muda, atualiza o scanner
+  // Quando a área de escaneamento muda, atualiza o scanner
   useEffect(() => {
-    if (isScanning && html5QrcodeRef.current && scannerInitializedRef.current) {
-      // Precisamos reiniciar o scanner completamente para aplicar a nova posição
+    if (isScanning && html5QrcodeRef.current) {
+      // Se estiver escaneando e a região mudar, para e reinicia o scanner
       stopScanning();
-      setTimeout(() => {
-        startScanning();
-      }, 300);
+      setTimeout(() => startScanning(), 300);
     }
-  }, [scanRegion]);
+  }, [scanBox]);
 
   const turnOnFlash = async () => {
     try {
@@ -275,19 +208,13 @@ const QRScanner = () => {
       html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
       html5QrcodeRef.current = null;
     }
-    scannerInitializedRef.current = false;
     setIsScanning(false);
-    
-    // Limpar quaisquer elementos residuais
-    removeExtraScanRegions();
   };
 
   const startCooldown = () => {
     setIsCooldown(true);
     setCooldownProgress(0);
     let progress = 0;
-    
-    stopScanning();
     
     if (cooldownIntervalRef.current) {
       window.clearInterval(cooldownIntervalRef.current);
@@ -305,29 +232,6 @@ const QRScanner = () => {
         startScanning();
       }
     }, 100); // Updates every 100ms for smooth progress
-  };
-
-  // Calcular a região de escaneamento em pixels absolutos
-  const calculateScanRegion = () => {
-    // Converter as porcentagens em valores absolutos de pixels
-    const regionPixels = {
-      width: Math.floor(scannerContainerSize.width * scanRegion.width / 100),
-      height: Math.floor(scannerContainerSize.height * scanRegion.height / 100)
-    };
-    
-    // Garantir que a região tem pelo menos 100x100 pixels para melhor detecção
-    return {
-      width: Math.max(100, regionPixels.width),
-      height: Math.max(100, regionPixels.height)
-    };
-  };
-
-  // Calcular a posição da região de escaneamento em pixels absolutos
-  const calculateScanPosition = () => {
-    return {
-      x: Math.floor(scannerContainerSize.width * scanRegion.x / 100),
-      y: Math.floor(scannerContainerSize.height * scanRegion.y / 100)
-    };
   };
 
   const captureFrame = async () => {
@@ -383,21 +287,6 @@ const QRScanner = () => {
     }
   };
 
-  // Remover elementos extras da biblioteca HTML5-QRCode
-  const removeExtraScanRegions = () => {
-    // Remover qualquer região de escaneamento renderizada pela biblioteca
-    const qrBoxElements = document.querySelectorAll('[style*="border: 6px solid rgb(255, 255, 255)"]');
-    qrBoxElements.forEach(element => {
-      element.remove();
-    });
-    
-    // Remover também outros elementos que podem ser criados
-    const qrElements = document.querySelectorAll('#qr-reader__scan_region');
-    qrElements.forEach(element => {
-      element.remove();
-    });
-  };
-
   const startScanning = async () => {
     if (!targetQRCode.trim()) {
       toast.error('Por favor, insira um texto para buscar no QR Code');
@@ -410,41 +299,27 @@ const QRScanner = () => {
         return;
       }
 
-      // Limpar qualquer escaneamento anterior
       if (html5QrcodeRef.current) {
-        await html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
+        html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
       }
-
-      // Limpar elementos indesejados antes de iniciar
-      removeExtraScanRegions();
 
       const html5Qrcode = new Html5Qrcode("qr-reader");
       html5QrcodeRef.current = html5Qrcode;
 
-      // Configurações do scanner com a posição precisa
-      const region = calculateScanRegion();
-      const position = calculateScanPosition();
-    
+      // Configurações do scanner com área de leitura em pixels exatos
       const qrConfig = {
         fps: 10,
         qrbox: {
-          width: region.width,
-          height: region.height,
-          x: position.x,
-          y: position.y
+          width: scanBox.width,
+          height: scanBox.height,
+          x: scanBox.x,
+          y: scanBox.y
         },
         aspectRatio: 1.0,
         disableFlip: false,
-        formatsToSupport: ["QR_CODE"],
-        rememberLastUsedCamera: true,
-        supportedScanTypes: [0],
-        showTorchButtonIfSupported: false,
-        showZoomSliderIfSupported: false,
-        useBarCodeDetectorIfSupported: false
       };
 
-      // Salvar a última configuração para comparação
-      setLastQrConfig(qrConfig);
+      console.log('QR Config:', qrConfig);
 
       await html5Qrcode.start(
         { deviceId: { exact: selectedCamera } },
@@ -467,19 +342,10 @@ const QRScanner = () => {
         }
       );
 
-      // Remover elementos da UI da biblioteca que possam estar causando duplicação da área
-      for (let i = 0; i < 5; i++) {
-        setTimeout(() => {
-          removeExtraScanRegions();
-        }, i * 200); // Tentar várias vezes em intervalos diferentes
-      }
-
-      scannerInitializedRef.current = true;
       setIsScanning(true);
     } catch (error) {
       console.error('Erro ao iniciar scanner:', error);
       toast.error('Erro ao iniciar scanner');
-      setIsScanning(false);
     }
   };
 
@@ -638,252 +504,128 @@ const QRScanner = () => {
     }
   };
 
-  // Funções para manipulação da área de escaneamento
-  const handleResizeStart = (direction: string, e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-    setResizeDirection(direction);
-    
-    let clientX = 0;
-    let clientY = 0;
-    
-    if ('touches' in e) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-    
-    setDragStartPos({ x: clientX, y: clientY });
-  };
-
-  const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-    
-    let clientX = 0;
-    let clientY = 0;
-    
-    if ('touches' in e) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-    
-    setDragStartPos({ x: clientX, y: clientY });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    
-    if (!isDragging && !isResizing) return;
-    
-    const scannerRect = scannerContainerRef.current?.getBoundingClientRect();
-    if (!scannerRect) return;
-
-    let clientX = 0;
-    let clientY = 0;
-    
-    if ('touches' in e) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-    
-    const deltaX = clientX - dragStartPos.x;
-    const deltaY = clientY - dragStartPos.y;
-    
-    // Porcentagem de movimento em relação ao tamanho do container
-    const deltaXPercent = (deltaX / scannerRect.width) * 100;
-    const deltaYPercent = (deltaY / scannerRect.height) * 100;
-    
-    if (isDragging) {
-      // Atualizar posição com limites
-      setScanRegion((prev) => {
-        const newX = Math.max(0, Math.min(100 - prev.width, prev.x + deltaXPercent));
-        const newY = Math.max(0, Math.min(100 - prev.height, prev.y + deltaYPercent));
-        return { ...prev, x: newX, y: newY };
-      });
-      
-      // Atualizar ponto de início para o próximo movimento
-      setDragStartPos({ x: clientX, y: clientY });
-    } else if (isResizing) {
-      setScanRegion((prev) => {
-        let newRegion = { ...prev };
-        
-        if (resizeDirection.includes('n')) {
-          const newHeight = Math.max(10, prev.height - deltaYPercent);
-          const heightDiff = prev.height - newHeight;
-          newRegion.y = Math.max(0, Math.min(100 - newHeight, prev.y + heightDiff));
-          newRegion.height = newHeight;
-        }
-        
-        if (resizeDirection.includes('s')) {
-          newRegion.height = Math.max(10, Math.min(100 - prev.y, prev.height + deltaYPercent));
-        }
-        
-        if (resizeDirection.includes('w')) {
-          const newWidth = Math.max(10, prev.width - deltaXPercent);
-          const widthDiff = prev.width - newWidth;
-          newRegion.x = Math.max(0, Math.min(100 - newWidth, prev.x + widthDiff));
-          newRegion.width = newWidth;
-        }
-        
-        if (resizeDirection.includes('e')) {
-          newRegion.width = Math.max(10, Math.min(100 - prev.x, prev.width + deltaXPercent));
-        }
-        
-        return newRegion;
-      });
-      
-      // Atualizar ponto de início para o próximo movimento
-      setDragStartPos({ x: clientX, y: clientY });
-    }
-  };
-
-  const handleEnd = () => {
-    setIsDragging(false);
-    setIsResizing(false);
-  };
-
-  // Funções para os botões de controle da área de escaneamento
-  const moveLeft = () => {
-    setScanRegion(prev => ({
-      ...prev,
-      x: Math.max(0, prev.x - 5)
-    }));
-  };
-
-  const moveRight = () => {
-    setScanRegion(prev => ({
-      ...prev,
-      x: Math.min(100 - prev.width, prev.x + 5)
-    }));
-  };
-
+  // Funções de movimentação direta da área de leitura
   const moveUp = () => {
-    setScanRegion(prev => ({
+    setScanBox(prev => ({
       ...prev,
-      y: Math.max(0, prev.y - 5)
+      y: Math.max(0, prev.y - 20)
     }));
   };
 
   const moveDown = () => {
-    setScanRegion(prev => ({
+    if (scannerContainerRef.current) {
+      const maxY = scannerContainerRef.current.clientHeight - scanBox.height;
+      setScanBox(prev => ({
+        ...prev,
+        y: Math.min(maxY, prev.y + 20)
+      }));
+    }
+  };
+
+  const moveLeft = () => {
+    setScanBox(prev => ({
       ...prev,
-      y: Math.min(100 - prev.height, prev.y + 5)
+      x: Math.max(0, prev.x - 20)
     }));
   };
 
-  const increaseWidth = () => {
-    setScanRegion(prev => {
-      const newWidth = Math.min(100 - prev.x, prev.width + 5);
-      return {
+  const moveRight = () => {
+    if (scannerContainerRef.current) {
+      const maxX = scannerContainerRef.current.clientWidth - scanBox.width;
+      setScanBox(prev => ({
         ...prev,
-        width: newWidth
-      };
-    });
+        x: Math.min(maxX, prev.x + 20)
+      }));
+    }
+  };
+
+  // Funções para ajuste de tamanho
+  const increaseWidth = () => {
+    if (scannerContainerRef.current) {
+      const maxWidth = scannerContainerRef.current.clientWidth - scanBox.x;
+      setScanBox(prev => ({
+        ...prev,
+        width: Math.min(maxWidth, prev.width + 20)
+      }));
+    }
   };
 
   const decreaseWidth = () => {
-    setScanRegion(prev => ({
+    setScanBox(prev => ({
       ...prev,
-      width: Math.max(10, prev.width - 5)
+      width: Math.max(100, prev.width - 20)
     }));
   };
 
   const increaseHeight = () => {
-    setScanRegion(prev => {
-      const newHeight = Math.min(100 - prev.y, prev.height + 5);
-      return {
+    if (scannerContainerRef.current) {
+      const maxHeight = scannerContainerRef.current.clientHeight - scanBox.y;
+      setScanBox(prev => ({
         ...prev,
-        height: newHeight
-      };
-    });
+        height: Math.min(maxHeight, prev.height + 20)
+      }));
+    }
   };
 
   const decreaseHeight = () => {
-    setScanRegion(prev => ({
+    setScanBox(prev => ({
       ...prev,
-      height: Math.max(10, prev.height - 5)
+      height: Math.max(100, prev.height - 20)
     }));
   };
 
   // Reset da área de escaneamento para a posição central
   const resetScanRegion = () => {
-    setScanRegion({
-      x: 25,
-      y: 25,
-      width: 50,
-      height: 50
-    });
+    updateScanBoxPosition();
   };
 
   // Expandir área de escaneamento
   const expandScanRegion = () => {
-    setScanRegion(prev => ({
-      x: Math.max(0, prev.x - 5),
-      y: Math.max(0, prev.y - 5),
-      width: Math.min(100, prev.width + 10),
-      height: Math.min(100, prev.height + 10)
-    }));
+    if (scannerContainerRef.current) {
+      const containerWidth = scannerContainerRef.current.clientWidth;
+      const containerHeight = scannerContainerRef.current.clientHeight;
+      
+      setScanBox(prev => {
+        const newWidth = Math.min(containerWidth, prev.width + 40);
+        const newHeight = Math.min(containerHeight, prev.height + 40);
+        const newX = Math.max(0, prev.x - 20);
+        const newY = Math.max(0, prev.y - 20);
+        
+        return {
+          width: newWidth,
+          height: newHeight,
+          x: newX,
+          y: newY
+        };
+      });
+    }
   };
 
   // Reduzir área de escaneamento
   const shrinkScanRegion = () => {
-    setScanRegion(prev => ({
-      x: prev.x + 5,
-      y: prev.y + 5,
-      width: Math.max(20, prev.width - 10),
-      height: Math.max(20, prev.height - 10)
+    setScanBox(prev => ({
+      width: Math.max(100, prev.width - 40),
+      height: Math.max(100, prev.height - 40),
+      x: prev.x + 20,
+      y: prev.y + 20
     }));
   };
 
-  // Renderizar a área de escaneamento
-  const renderScanRegion = () => {
+  // Renderizar uma visualização da área de escaneamento
+  const renderScanBox = () => {
     if (!isScanning) return null;
     
     return (
       <div 
-        className="absolute bg-transparent border-2 border-blue-500 cursor-move z-50"
+        className="absolute border-2 border-blue-500 pointer-events-none z-10"
         style={{
-          left: `${scanRegion.x}%`,
-          top: `${scanRegion.y}%`,
-          width: `${scanRegion.width}%`,
-          height: `${scanRegion.height}%`,
+          left: scanBox.x,
+          top: scanBox.y,
+          width: scanBox.width,
+          height: scanBox.height,
           boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
         }}
-        onMouseDown={handleDragStart}
-        onTouchStart={handleDragStart}
-      >
-        {/* Controles de redimensionamento */}
-        <div 
-          className="absolute w-4 h-4 bg-blue-500 rounded-full -top-2 -left-2 cursor-nw-resize" 
-          onMouseDown={(e) => handleResizeStart('nw', e)}
-          onTouchStart={(e) => handleResizeStart('nw', e)}
-        />
-        <div 
-          className="absolute w-4 h-4 bg-blue-500 rounded-full -top-2 -right-2 cursor-ne-resize" 
-          onMouseDown={(e) => handleResizeStart('ne', e)}
-          onTouchStart={(e) => handleResizeStart('ne', e)}
-        />
-        <div 
-          className="absolute w-4 h-4 bg-blue-500 rounded-full -bottom-2 -left-2 cursor-sw-resize" 
-          onMouseDown={(e) => handleResizeStart('sw', e)}
-          onTouchStart={(e) => handleResizeStart('sw', e)}
-        />
-        <div 
-          className="absolute w-4 h-4 bg-blue-500 rounded-full -bottom-2 -right-2 cursor-se-resize" 
-          onMouseDown={(e) => handleResizeStart('se', e)}
-          onTouchStart={(e) => handleResizeStart('se', e)}
-        />
-      </div>
+      />
     );
   };
 
@@ -894,14 +636,9 @@ const QRScanner = () => {
           <div 
             ref={scannerContainerRef}
             className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden relative"
-            onMouseMove={handleMouseMove}
-            onTouchMove={handleMouseMove}
-            onMouseUp={handleEnd}
-            onMouseLeave={handleEnd}
-            onTouchEnd={handleEnd}
           >
             <div id="qr-reader" className="w-full h-full"></div>
-            {renderScanRegion()}
+            {renderScanBox()}
           </div>
           
           {isScanning && showScanControls && (
