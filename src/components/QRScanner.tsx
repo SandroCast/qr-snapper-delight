@@ -245,53 +245,65 @@ const QRScanner = () => {
       toast.error('Por favor, insira um texto para buscar no QR Code');
       return;
     }
-
+  
     try {
       if (isCooldown) {
         toast.error('Aguarde o fim do período de espera');
         return;
       }
-
+  
       if (scannerRef.current) {
         scannerRef.current.clear();
       }
-
+  
       const scanner = new Html5QrcodeScanner(
         "qr-reader",
-        { 
+        {
           fps: 10,
+          qrbox: { width: 150, height: 150 }, // Define uma região de leitura
           videoConstraints: {
             deviceId: selectedCamera,
             facingMode: "environment",
-            width: { ideal: 1920 },  // Define um valor ideal para a largura
-            height: { ideal: 1080 }  // Define um valor ideal para a altura
-          }
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
         },
         false
       );
-
+  
       scannerRef.current = scanner;
-
-      scanner.render((decodedText) => {
+  
+      scanner.render((decodedText, decodedResult) => {
         if (processingRef.current || isCooldown) return;
-
-        if (decodedText === targetQRCode) {
-          processingRef.current = true;
-          captureFrame().finally(() => {
-            processingRef.current = false;
-          });
+  
+        const { boundingBox } = decodedResult; // Obtem a posição do QR Code detectado
+        if (boundingBox) {
+          const { x, y } = boundingBox.topLeft; // Posição do canto superior esquerdo do QR Code
+  
+          // Definir um limite para considerar como "canto superior direito"
+          const thresholdX = 1200; // Ajuste conforme necessário
+          const thresholdY = 200;
+  
+          if (x >= thresholdX && y <= thresholdY) {
+            if (decodedText === targetQRCode) {
+              processingRef.current = true;
+              captureFrame().finally(() => {
+                processingRef.current = false;
+              });
+            }
+          }
         }
       }, (error) => {
         console.log(error);
       });
-
+  
       setIsScanning(true);
     } catch (error) {
       console.error('Erro ao iniciar scanner:', error);
       toast.error('Erro ao iniciar scanner');
     }
   };
-
+  
   const downloadPhotos = async () => {
     try {
       if (photos.length === 0) {
