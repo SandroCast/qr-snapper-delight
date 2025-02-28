@@ -1,13 +1,13 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Camera, Download, Video, Maximize, Minimize, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Camera, Download, Video } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import JSZip from 'jszip';
 
@@ -53,37 +53,21 @@ const QRScanner = () => {
   const [isCooldown, setIsCooldown] = useState(false);
   const [generatingTimelapse, setGeneratingTimelapse] = useState(false);
   const [timelapseSpeed, setTimelapseSpeed] = useState(1);
-  const [showScanControls, setShowScanControls] = useState(false);
-  
-  // Região do scanner (em pixels)
-  const [scanBox, setScanBox] = useState({
-    width: 200,
-    height: 200,
-    x: 0,
-    y: 0
-  });
-  
-  const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
+
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processingRef = useRef<boolean>(false);
   const imageCaptureRef = useRef<CustomImageCapture | null>(null);
   const cooldownIntervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scannerContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadCameras();
     preventScreenLock();
     
-    // Centralizar inicialmente a área de escaneamento
-    updateScanBoxPosition();
-    
-    // Atualizar quando o tamanho da janela mudar
-    window.addEventListener('resize', updateScanBoxPosition);
-    
     return () => {
-      if (html5QrcodeRef.current) {
-        html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
+      if (scannerRef.current) {
+        scannerRef.current.clear();
       }
       if (cooldownIntervalRef.current) {
         window.clearInterval(cooldownIntervalRef.current);
@@ -91,23 +75,8 @@ const QRScanner = () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
-      window.removeEventListener('resize', updateScanBoxPosition);
     };
   }, []);
-
-  // Centralizar a caixa de escaneamento quando o tamanho mudar
-  const updateScanBoxPosition = () => {
-    if (scannerContainerRef.current) {
-      const containerWidth = scannerContainerRef.current.clientWidth;
-      const containerHeight = scannerContainerRef.current.clientHeight;
-      
-      setScanBox(prev => ({
-        ...prev,
-        x: (containerWidth - prev.width) / 2,
-        y: (containerHeight - prev.height) / 2
-      }));
-    }
-  };
 
   useEffect(() => {
     if (isScanning && useFlash) {
@@ -116,24 +85,6 @@ const QRScanner = () => {
       turnOffFlash();
     }
   }, [useFlash, isScanning]);
-
-  // Quando o scanner é iniciado, mostrar os controles
-  useEffect(() => {
-    if (isScanning) {
-      setShowScanControls(true);
-    } else {
-      setShowScanControls(false);
-    }
-  }, [isScanning]);
-
-  // Quando a área de escaneamento muda, atualiza o scanner
-  useEffect(() => {
-    if (isScanning && html5QrcodeRef.current) {
-      // Se estiver escaneando e a região mudar, para e reinicia o scanner
-      stopScanning();
-      setTimeout(() => startScanning(), 300);
-    }
-  }, [scanBox]);
 
   const turnOnFlash = async () => {
     try {
@@ -204,9 +155,9 @@ const QRScanner = () => {
   };
 
   const stopScanning = () => {
-    if (html5QrcodeRef.current) {
-      html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
-      html5QrcodeRef.current = null;
+    if (scannerRef.current) {
+      scannerRef.current.clear();
+      scannerRef.current = null;
     }
     setIsScanning(false);
   };
@@ -215,6 +166,8 @@ const QRScanner = () => {
     setIsCooldown(true);
     setCooldownProgress(0);
     let progress = 0;
+    
+    stopScanning();
     
     if (cooldownIntervalRef.current) {
       window.clearInterval(cooldownIntervalRef.current);
@@ -299,48 +252,38 @@ const QRScanner = () => {
         return;
       }
 
-      if (html5QrcodeRef.current) {
-        html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
+      if (scannerRef.current) {
+        scannerRef.current.clear();
       }
 
-      const html5Qrcode = new Html5Qrcode("qr-reader");
-      html5QrcodeRef.current = html5Qrcode;
-
-      // Configurações do scanner com área de leitura em pixels exatos
-      const qrConfig = {
-        fps: 10,
-        qrbox: {
-          width: scanBox.width,
-          height: scanBox.height,
-          x: scanBox.x,
-          y: scanBox.y
-        },
-        aspectRatio: 1.0,
-        disableFlip: false,
-      };
-
-      console.log('QR Config:', qrConfig);
-
-      await html5Qrcode.start(
-        { deviceId: { exact: selectedCamera } },
-        qrConfig,
-        (decodedText) => {
-          if (processingRef.current || isCooldown) return;
-
-          if (decodedText === targetQRCode) {
-            processingRef.current = true;
-            captureFrame().finally(() => {
-              processingRef.current = false;
-            });
+      const scanner = new Html5QrcodeScanner(
+        "qr-reader",
+        { 
+          fps: 10,
+          videoConstraints: {
+            deviceId: selectedCamera,
+            facingMode: "environment",
+            width: { ideal: 1920 },  // Define um valor ideal para a largura
+            height: { ideal: 1080 }  // Define um valor ideal para a altura
           }
         },
-        (errorMessage) => {
-          // Silenciar erros de leitura - são esperados quando não há QR code
-          if (!errorMessage.includes("No QR code found")) {
-            console.log(errorMessage);
-          }
-        }
+        false
       );
+
+      scannerRef.current = scanner;
+
+      scanner.render((decodedText) => {
+        if (processingRef.current || isCooldown) return;
+
+        if (decodedText === targetQRCode) {
+          processingRef.current = true;
+          captureFrame().finally(() => {
+            processingRef.current = false;
+          });
+        }
+      }, (error) => {
+        console.log(error);
+      });
 
       setIsScanning(true);
     } catch (error) {
@@ -504,274 +447,13 @@ const QRScanner = () => {
     }
   };
 
-  // Funções de movimentação direta da área de leitura
-  const moveUp = () => {
-    setScanBox(prev => ({
-      ...prev,
-      y: Math.max(0, prev.y - 20)
-    }));
-  };
-
-  const moveDown = () => {
-    if (scannerContainerRef.current) {
-      const maxY = scannerContainerRef.current.clientHeight - scanBox.height;
-      setScanBox(prev => ({
-        ...prev,
-        y: Math.min(maxY, prev.y + 20)
-      }));
-    }
-  };
-
-  const moveLeft = () => {
-    setScanBox(prev => ({
-      ...prev,
-      x: Math.max(0, prev.x - 20)
-    }));
-  };
-
-  const moveRight = () => {
-    if (scannerContainerRef.current) {
-      const maxX = scannerContainerRef.current.clientWidth - scanBox.width;
-      setScanBox(prev => ({
-        ...prev,
-        x: Math.min(maxX, prev.x + 20)
-      }));
-    }
-  };
-
-  // Funções para ajuste de tamanho
-  const increaseWidth = () => {
-    if (scannerContainerRef.current) {
-      const maxWidth = scannerContainerRef.current.clientWidth - scanBox.x;
-      setScanBox(prev => ({
-        ...prev,
-        width: Math.min(maxWidth, prev.width + 20)
-      }));
-    }
-  };
-
-  const decreaseWidth = () => {
-    setScanBox(prev => ({
-      ...prev,
-      width: Math.max(100, prev.width - 20)
-    }));
-  };
-
-  const increaseHeight = () => {
-    if (scannerContainerRef.current) {
-      const maxHeight = scannerContainerRef.current.clientHeight - scanBox.y;
-      setScanBox(prev => ({
-        ...prev,
-        height: Math.min(maxHeight, prev.height + 20)
-      }));
-    }
-  };
-
-  const decreaseHeight = () => {
-    setScanBox(prev => ({
-      ...prev,
-      height: Math.max(100, prev.height - 20)
-    }));
-  };
-
-  // Reset da área de escaneamento para a posição central
-  const resetScanRegion = () => {
-    updateScanBoxPosition();
-  };
-
-  // Expandir área de escaneamento
-  const expandScanRegion = () => {
-    if (scannerContainerRef.current) {
-      const containerWidth = scannerContainerRef.current.clientWidth;
-      const containerHeight = scannerContainerRef.current.clientHeight;
-      
-      setScanBox(prev => {
-        const newWidth = Math.min(containerWidth, prev.width + 40);
-        const newHeight = Math.min(containerHeight, prev.height + 40);
-        const newX = Math.max(0, prev.x - 20);
-        const newY = Math.max(0, prev.y - 20);
-        
-        return {
-          width: newWidth,
-          height: newHeight,
-          x: newX,
-          y: newY
-        };
-      });
-    }
-  };
-
-  // Reduzir área de escaneamento
-  const shrinkScanRegion = () => {
-    setScanBox(prev => ({
-      width: Math.max(100, prev.width - 40),
-      height: Math.max(100, prev.height - 40),
-      x: prev.x + 20,
-      y: prev.y + 20
-    }));
-  };
-
-  // Renderizar uma visualização da área de escaneamento
-  const renderScanBox = () => {
-    if (!isScanning) return null;
-    
-    return (
-      <div 
-        className="absolute border-2 border-blue-500 pointer-events-none z-10"
-        style={{
-          left: scanBox.x,
-          top: scanBox.y,
-          width: scanBox.width,
-          height: scanBox.height,
-          boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)',
-        }}
-      />
-    );
-  };
-
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
         <div className="space-y-6">
-          <div 
-            ref={scannerContainerRef}
-            className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden relative"
-          >
+          <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden">
             <div id="qr-reader" className="w-full h-full"></div>
-            {renderScanBox()}
           </div>
-          
-          {isScanning && showScanControls && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-2">
-                <h3 className="col-span-3 text-center font-medium text-sm">Controles da Área de Leitura</h3>
-                
-                {/* Controles de posição */}
-                <div className="col-span-3">
-                  <h4 className="text-xs font-medium text-center mb-1">Posição</h4>
-                  <div className="grid grid-cols-3 gap-1">
-                    <div className="col-start-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="w-full"
-                        onClick={moveUp}
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="col-start-1 col-end-4 grid grid-cols-3 gap-1 mt-1">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="w-full"
-                        onClick={moveLeft}
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="w-full"
-                        onClick={resetScanRegion}
-                      >
-                        Centralizar
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="w-full"
-                        onClick={moveRight}
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="col-start-2 mt-1">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="w-full"
-                        onClick={moveDown}
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Controles de tamanho */}
-                <div className="col-span-3 mt-2">
-                  <h4 className="text-xs font-medium text-center mb-1">Tamanho</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs block text-center">Largura</label>
-                      <div className="flex space-x-1">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="flex-1"
-                          onClick={decreaseWidth}
-                        >
-                          -
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="flex-1"
-                          onClick={increaseWidth}
-                        >
-                          +
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs block text-center">Altura</label>
-                      <div className="flex space-x-1">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="flex-1"
-                          onClick={decreaseHeight}
-                        >
-                          -
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="flex-1"
-                          onClick={increaseHeight}
-                        >
-                          +
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Botões de ajuste rápido */}
-                <div className="col-span-3 flex space-x-2 mt-1">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="flex-1"
-                    onClick={shrinkScanRegion}
-                  >
-                    <Minimize className="h-4 w-4 mr-1" />
-                    Reduzir
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="flex-1"
-                    onClick={expandScanRegion}
-                  >
-                    <Maximize className="h-4 w-4 mr-1" />
-                    Expandir
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
           
           <div className="space-y-2">
             <Input
