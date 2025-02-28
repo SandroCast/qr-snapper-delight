@@ -54,6 +54,7 @@ const QRScanner = () => {
   const [generatingTimelapse, setGeneratingTimelapse] = useState(false);
   const [timelapseSpeed, setTimelapseSpeed] = useState(1);
   const [showScanControls, setShowScanControls] = useState(false);
+  const [lastQrConfig, setLastQrConfig] = useState<any>(null);
   
   // Região do scanner
   const [scanRegion, setScanRegion] = useState({
@@ -75,6 +76,8 @@ const QRScanner = () => {
   const cooldownIntervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scannerContainerRef = useRef<HTMLDivElement>(null);
+  const scannerInitializedRef = useRef<boolean>(false);
+  const removalIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadCameras();
@@ -93,6 +96,53 @@ const QRScanner = () => {
     updateContainerSize();
     window.addEventListener('resize', updateContainerSize);
     
+    // Adicionar estilo CSS para ocultar o elemento com borda branca
+    const styleElement = document.createElement('style');
+    styleElement.textContent = `
+      [style*="border: 6px solid rgb(255, 255, 255)"],
+      [style*="position: absolute; border: 6px solid rgb(255, 255, 255)"],
+      div[style*="border: 6px solid rgb(255, 255, 255)"] {
+        visibility: hidden !important;
+        opacity: 0 !important;
+        display: none !important;
+      }
+      
+      #qr-reader__scan_region {
+        display: none !important;
+      }
+      
+      #qr-reader__dashboard button {
+        display: none !important;
+      }
+      
+      #qr-reader__dashboard {
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      
+      #qr-reader__status_span {
+        display: none !important;
+      }
+      
+      #qr-reader__dashboard_section_csr {
+        padding: 0 !important;
+      }
+      
+      #qr-reader__dashboard_section_swaplink {
+        display: none !important;
+      }
+      
+      #qr-reader__camera_selection {
+        display: none !important;
+      }
+      
+      #qr-reader {
+        border: none !important;
+        padding: 0 !important;
+      }
+    `;
+    document.head.appendChild(styleElement);
+    
     return () => {
       if (html5QrcodeRef.current) {
         html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
@@ -100,10 +150,14 @@ const QRScanner = () => {
       if (cooldownIntervalRef.current) {
         window.clearInterval(cooldownIntervalRef.current);
       }
+      if (removalIntervalRef.current) {
+        clearInterval(removalIntervalRef.current);
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
       window.removeEventListener('resize', updateContainerSize);
+      document.head.removeChild(styleElement);
     };
   }, []);
 
@@ -119,17 +173,32 @@ const QRScanner = () => {
   useEffect(() => {
     if (isScanning) {
       setShowScanControls(true);
+      
+      // Configurar intervalo para remover continuamente os elementos indesejados
+      if (removalIntervalRef.current) {
+        clearInterval(removalIntervalRef.current);
+      }
+      
+      removalIntervalRef.current = setInterval(() => {
+        removeExtraScanRegions();
+      }, 100); // Verificar e remover a cada 100ms
+      
     } else {
       setShowScanControls(false);
+      if (removalIntervalRef.current) {
+        clearInterval(removalIntervalRef.current);
+      }
     }
   }, [isScanning]);
 
   // Quando a região de escaneamento muda, atualiza o scanner
   useEffect(() => {
-    if (isScanning && html5QrcodeRef.current) {
-      // Se estiver escaneando e a região mudar, para e reinicia o scanner com a nova posição
+    if (isScanning && html5QrcodeRef.current && scannerInitializedRef.current) {
+      // Precisamos reiniciar o scanner completamente para aplicar a nova posição
       stopScanning();
-      startScanning();
+      setTimeout(() => {
+        startScanning();
+      }, 300);
     }
   }, [scanRegion]);
 
@@ -206,7 +275,11 @@ const QRScanner = () => {
       html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
       html5QrcodeRef.current = null;
     }
+    scannerInitializedRef.current = false;
     setIsScanning(false);
+    
+    // Limpar quaisquer elementos residuais
+    removeExtraScanRegions();
   };
 
   const startCooldown = () => {
@@ -310,6 +383,21 @@ const QRScanner = () => {
     }
   };
 
+  // Remover elementos extras da biblioteca HTML5-QRCode
+  const removeExtraScanRegions = () => {
+    // Remover qualquer região de escaneamento renderizada pela biblioteca
+    const qrBoxElements = document.querySelectorAll('[style*="border: 6px solid rgb(255, 255, 255)"]');
+    qrBoxElements.forEach(element => {
+      element.remove();
+    });
+    
+    // Remover também outros elementos que podem ser criados
+    const qrElements = document.querySelectorAll('#qr-reader__scan_region');
+    qrElements.forEach(element => {
+      element.remove();
+    });
+  };
+
   const startScanning = async () => {
     if (!targetQRCode.trim()) {
       toast.error('Por favor, insira um texto para buscar no QR Code');
@@ -322,20 +410,18 @@ const QRScanner = () => {
         return;
       }
 
+      // Limpar qualquer escaneamento anterior
       if (html5QrcodeRef.current) {
-        html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
+        await html5QrcodeRef.current.stop().catch(error => console.error("Erro ao parar scanner:", error));
       }
+
+      // Limpar elementos indesejados antes de iniciar
+      removeExtraScanRegions();
 
       const html5Qrcode = new Html5Qrcode("qr-reader");
       html5QrcodeRef.current = html5Qrcode;
 
-      // Remover elementos HTML QR Code internos que possam causar problemas
-      const qrBoxElement = document.querySelector('#qr-reader__scan_region');
-      if (qrBoxElement) {
-        qrBoxElement.remove();
-      }
-
-      // Configurações do scanner
+      // Configurações do scanner com a posição precisa
       const region = calculateScanRegion();
       const position = calculateScanPosition();
     
@@ -344,14 +430,21 @@ const QRScanner = () => {
         qrbox: {
           width: region.width,
           height: region.height,
-          x: position.x,  // Posição X da área de escaneamento
-          y: position.y   // Posição Y da área de escaneamento
+          x: position.x,
+          y: position.y
         },
         aspectRatio: 1.0,
         disableFlip: false,
+        formatsToSupport: ["QR_CODE"],
+        rememberLastUsedCamera: true,
+        supportedScanTypes: [0],
         showTorchButtonIfSupported: false,
         showZoomSliderIfSupported: false,
+        useBarCodeDetectorIfSupported: false
       };
+
+      // Salvar a última configuração para comparação
+      setLastQrConfig(qrConfig);
 
       await html5Qrcode.start(
         { deviceId: { exact: selectedCamera } },
@@ -375,17 +468,18 @@ const QRScanner = () => {
       );
 
       // Remover elementos da UI da biblioteca que possam estar causando duplicação da área
-      setTimeout(() => {
-        const qrBoxElements = document.querySelectorAll('[style*="border: 6px solid rgb(255, 255, 255)"]');
-        qrBoxElements.forEach(element => {
-          element.remove();
-        });
-      }, 100);
+      for (let i = 0; i < 5; i++) {
+        setTimeout(() => {
+          removeExtraScanRegions();
+        }, i * 200); // Tentar várias vezes em intervalos diferentes
+      }
 
+      scannerInitializedRef.current = true;
       setIsScanning(true);
     } catch (error) {
       console.error('Erro ao iniciar scanner:', error);
       toast.error('Erro ao iniciar scanner');
+      setIsScanning(false);
     }
   };
 
@@ -751,25 +845,13 @@ const QRScanner = () => {
     }));
   };
 
-  // Remover elementos extras da biblioteca HTML5-QRCode
-  const removeExtraScanRegions = () => {
-    // Remove qualquer região de escaneamento renderizada pela biblioteca
-    const qrBoxElements = document.querySelectorAll('[style*="border: 6px solid rgb(255, 255, 255)"]');
-    qrBoxElements.forEach(element => {
-      element.remove();
-    });
-  };
-
   // Renderizar a área de escaneamento
   const renderScanRegion = () => {
     if (!isScanning) return null;
     
-    // Remover elementos extras da biblioteca HTML5-QRCode
-    setTimeout(removeExtraScanRegions, 100);
-    
     return (
       <div 
-        className="absolute bg-transparent border-2 border-blue-500 cursor-move z-10"
+        className="absolute bg-transparent border-2 border-blue-500 cursor-move z-50"
         style={{
           left: `${scanRegion.x}%`,
           top: `${scanRegion.y}%`,
@@ -804,25 +886,6 @@ const QRScanner = () => {
       </div>
     );
   };
-
-  // Adicionar estilo para ocultar elementos indesejados da biblioteca HTML5-QRCode
-  useEffect(() => {
-    // Adicionar estilo CSS para ocultar o elemento com borda branca
-    const styleElement = document.createElement('style');
-    styleElement.textContent = `
-      [style*="border: 6px solid rgb(255, 255, 255)"] {
-        display: none !important;
-      }
-      #qr-reader__scan_region {
-        display: none !important;
-      }
-    `;
-    document.head.appendChild(styleElement);
-    
-    return () => {
-      document.head.removeChild(styleElement);
-    };
-  }, []);
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
