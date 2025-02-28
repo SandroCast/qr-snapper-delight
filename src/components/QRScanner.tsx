@@ -242,72 +242,56 @@ const QRScanner = () => {
 
   const startScanning = async () => {
     if (!targetQRCode.trim()) {
-      toast.error("Por favor, insira um texto para buscar no QR Code");
+      toast.error('Por favor, insira um texto para buscar no QR Code');
       return;
     }
-  
+
     try {
       if (isCooldown) {
-        toast.error("Aguarde o fim do período de espera");
+        toast.error('Aguarde o fim do período de espera');
         return;
       }
-  
+
       if (scannerRef.current) {
         scannerRef.current.clear();
       }
-  
+
       const scanner = new Html5QrcodeScanner(
         "qr-reader",
-        {
+        { 
           fps: 10,
-          qrbox: { width: 50, height: 50 }, // Área de leitura limitada (ajuste conforme necessário)
           videoConstraints: {
             deviceId: selectedCamera,
             facingMode: "environment",
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
+            width: { ideal: 1920 },  // Define um valor ideal para a largura
+            height: { ideal: 1080 }  // Define um valor ideal para a altura
+          }
         },
         false
       );
-  
+
       scannerRef.current = scanner;
-  
-      scanner.render(
-        (decodedText) => {
-          if (processingRef.current || isCooldown) return;
-  
-          if (decodedText === targetQRCode) {
-            processingRef.current = true;
-            captureFrame().finally(() => {
-              processingRef.current = false;
-            });
-          }
-        },
-        (error) => {
-          console.log(error);
+
+      scanner.render((decodedText) => {
+        if (processingRef.current || isCooldown) return;
+
+        if (decodedText === targetQRCode) {
+          processingRef.current = true;
+          captureFrame().finally(() => {
+            processingRef.current = false;
+          });
         }
-      );
-  
+      }, (error) => {
+        console.log(error);
+      });
+
       setIsScanning(true);
-  
-      // Ajustar posição do qrbox via CSS
-      setTimeout(() => {
-        const qrRegion = document.querySelector("#qr-reader div:nth-child(2)"); // Seleciona a área do QR Code
-        if (qrRegion) {
-          (qrRegion as HTMLElement).style.position = "absolute";
-          (qrRegion as HTMLElement).style.top = "10px"; // Ajuste conforme necessário
-          (qrRegion as HTMLElement).style.right = "10px"; // Ajuste conforme necessário
-          (qrRegion as HTMLElement).style.border = "2px solid red"; // Apenas para visualização
-        }
-      }, 500);
     } catch (error) {
-      console.error("Erro ao iniciar scanner:", error);
-      toast.error("Erro ao iniciar scanner");
+      console.error('Erro ao iniciar scanner:', error);
+      toast.error('Erro ao iniciar scanner');
     }
   };
-  
-  
+
   const downloadPhotos = async () => {
     try {
       if (photos.length === 0) {
