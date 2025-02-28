@@ -281,7 +281,7 @@ const QRScanner = () => {
           const { x, y } = boundingBox.topLeft; // Posição do canto superior esquerdo do QR Code
   
           // Definir um limite para considerar como "canto superior direito"
-          const thresholdX = 1200; // Ajuste conforme necessário
+          const thresholdX = 200; // Ajuste conforme necessário
           const thresholdY = 200;
   
           if (x >= thresholdX && y <= thresholdY) {
