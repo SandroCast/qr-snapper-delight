@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -59,77 +60,10 @@ const QRScanner = () => {
   const imageCaptureRef = useRef<CustomImageCapture | null>(null);
   const cooldownIntervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     loadCameras();
     preventScreenLock();
-    
-    // Adicionando estilos para posicionar o scanner no canto superior direito
-    const styleElement = document.createElement('style');
-    styleElement.textContent = `
-      #qr-reader {
-        position: relative !important;
-        width: 150px !important;
-        height: 150px !important;
-        overflow: hidden !important;
-        position: absolute !important;
-        top: 10px !important;
-        right: 10px !important;
-        z-index: 100 !important;
-        border: 2px solid #0070f3 !important;
-        border-radius: 8px !important;
-      }
-      
-      #qr-reader video {
-        width: 100% !important;
-        height: 100% !important;
-        object-fit: cover !important;
-      }
-      
-      #qr-reader__dashboard_section_csr {
-        display: none !important;
-      }
-      
-      #qr-reader__dashboard {
-        display: none !important;
-      }
-      
-      #qr-reader__status_span {
-        display: none !important;
-      }
-      
-      #qr-reader__dashboard_section_swaplink {
-        display: none !important;
-      }
-      
-      #qr-reader__camera_selection {
-        display: none !important;
-      }
-      
-      #qr-reader__scan_region {
-        border: none !important;
-      }
-
-      #preview-container {
-        position: relative !important;
-        width: 100% !important;
-        height: 300px !important;
-        border-radius: 8px !important;
-        overflow: hidden !important;
-        background-color: #333 !important;
-      }
-      
-      #preview-video {
-        width: 100% !important;
-        height: 100% !important;
-        object-fit: cover !important;
-      }
-    `;
-    document.head.appendChild(styleElement);
-    
-    // This ensures that the document body has a light background
-    document.body.classList.add('bg-white');
     
     return () => {
       if (scannerRef.current) {
@@ -141,8 +75,6 @@ const QRScanner = () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
-      document.head.removeChild(styleElement);
-      document.body.classList.remove('bg-white');
     };
   }, []);
 
@@ -227,15 +159,6 @@ const QRScanner = () => {
       scannerRef.current.clear();
       scannerRef.current = null;
     }
-    
-    // Clear the preview video
-    const previewVideo = document.getElementById('preview-video') as HTMLVideoElement;
-    if (previewVideo && previewVideo.srcObject) {
-      const stream = previewVideo.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      previewVideo.srcObject = null;
-    }
-    
     setIsScanning(false);
   };
 
@@ -244,8 +167,7 @@ const QRScanner = () => {
     setCooldownProgress(0);
     let progress = 0;
     
-    // Don't stop scanning during cooldown, just prevent captures
-    // stopScanning();
+    stopScanning();
     
     if (cooldownIntervalRef.current) {
       window.clearInterval(cooldownIntervalRef.current);
@@ -260,8 +182,7 @@ const QRScanner = () => {
         if (cooldownIntervalRef.current) {
           window.clearInterval(cooldownIntervalRef.current);
         }
-        // No need to restart scanner here as we're not stopping it
-        // startScanning();
+        startScanning();
       }
     }, 100); // Updates every 100ms for smooth progress
   };
@@ -273,30 +194,23 @@ const QRScanner = () => {
         return;
       }
 
-      // Use the preview video for capturing as it's larger and clearer
-      let videoElement = document.getElementById('preview-video') as HTMLVideoElement;
-      if (!videoElement || !videoElement.srcObject) {
-        console.error('Preview video element not found or no source');
-        // Fallback to QR scanner video
-        const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
-        if (!qrElement || !qrElement.srcObject) {
-          throw new Error('No video source found for capture');
-        }
-        videoElement = qrElement;
+      const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
+      if (!qrElement) {
+        throw new Error('Video element not found');
       }
 
       if (useFlash) {
         await turnOnFlash();
-        await new Promise(resolve => setTimeout(resolve, 500)); // Short delay for flash to stabilize
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos para estabilizar
       }
 
       const canvas = document.createElement('canvas');
-      canvas.width = videoElement.videoWidth;
-      canvas.height = videoElement.videoHeight;
+      canvas.width = qrElement.videoWidth;
+      canvas.height = qrElement.videoHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Could not get canvas context');
 
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(qrElement, 0, 0, canvas.width, canvas.height);
 
       const base64Image = canvas.toDataURL('image/jpeg', 0.9);
       const base64Data = base64Image.split(',')[1];
@@ -342,31 +256,15 @@ const QRScanner = () => {
         scannerRef.current.clear();
       }
 
-      // Clean up any existing streams first
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-
-      // Make sure the preview-video is cleared
-      const previewVideo = document.getElementById('preview-video') as HTMLVideoElement;
-      if (previewVideo && previewVideo.srcObject) {
-        const stream = previewVideo.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-        previewVideo.srcObject = null;
-      }
-
-      // Configurar o scanner com dimensões reduzidas
       const scanner = new Html5QrcodeScanner(
         "qr-reader",
         { 
           fps: 10,
-          qrbox: { width: 120, height: 120 }, // Área de digitalização menor
           videoConstraints: {
             deviceId: selectedCamera,
             facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 1920 },  // Define um valor ideal para a largura
+            height: { ideal: 1080 }  // Define um valor ideal para a altura
           }
         },
         false
@@ -386,46 +284,6 @@ const QRScanner = () => {
       }, (error) => {
         console.log(error);
       });
-
-      // Set up a timer to check and configure the video elements
-      const setupVideoTimer = setInterval(() => {
-        console.log('Checking for video elements');
-        const videoElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
-        if (videoElement && videoElement.srcObject) {
-          clearInterval(setupVideoTimer);
-          console.log('QR scanner video found, setting up preview');
-          
-          // Store reference to the video element
-          videoRef.current = videoElement;
-          
-          // Get the video stream and store it
-          const stream = videoElement.srcObject as MediaStream;
-          streamRef.current = stream;
-          
-          // Clone the stream for the preview video
-          const previewStream = new MediaStream();
-          stream.getVideoTracks().forEach(track => {
-            previewStream.addTrack(track.clone());
-          });
-          
-          // Set up the preview video
-          const previewVideo = document.getElementById('preview-video') as HTMLVideoElement;
-          if (previewVideo) {
-            previewVideo.srcObject = previewStream;
-            previewVideo.play().catch(e => {
-              console.error('Error starting preview:', e);
-              // Fallback: just use the same stream
-              previewVideo.srcObject = stream;
-              previewVideo.play().catch(e2 => console.error('Fallback also failed:', e2));
-            });
-          }
-        }
-      }, 500);
-
-      // Clear the timer after 10 seconds max
-      setTimeout(() => {
-        clearInterval(setupVideoTimer);
-      }, 10000);
 
       setIsScanning(true);
     } catch (error) {
@@ -590,15 +448,11 @@ const QRScanner = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white p-4">
+    <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
         <div className="space-y-6">
-          <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden relative" id="preview-container">
-            {/* Preview de vídeo em tamanho grande */}
-            <video id="preview-video" className="w-full h-full" playsInline muted autoPlay></video>
-            
-            {/* Área do scanner reduzida no canto superior direito */}
-            <div id="qr-reader" className="absolute top-2 right-2 w-32 h-32 rounded-lg overflow-hidden"></div>
+          <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden">
+            <div id="qr-reader" className="w-full h-full"></div>
           </div>
           
           <div className="space-y-2">
