@@ -260,6 +260,10 @@ const QRScanner = () => {
         "qr-reader",
         { 
           fps: 10,
+          qrbox: { 
+            width: 120, 
+            height: 120 
+          },
           videoConstraints: {
             deviceId: selectedCamera,
             facingMode: "environment",
