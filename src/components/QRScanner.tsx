@@ -224,6 +224,15 @@ const QRScanner = () => {
       scannerRef.current.clear();
       scannerRef.current = null;
     }
+    
+    // Clear the preview video
+    const previewVideo = document.getElementById('preview-video') as HTMLVideoElement;
+    if (previewVideo && previewVideo.srcObject) {
+      const stream = previewVideo.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      previewVideo.srcObject = null;
+    }
+    
     setIsScanning(false);
   };
 
@@ -232,7 +241,8 @@ const QRScanner = () => {
     setCooldownProgress(0);
     let progress = 0;
     
-    stopScanning();
+    // Don't stop scanning during cooldown, just prevent captures
+    // stopScanning();
     
     if (cooldownIntervalRef.current) {
       window.clearInterval(cooldownIntervalRef.current);
@@ -247,7 +257,8 @@ const QRScanner = () => {
         if (cooldownIntervalRef.current) {
           window.clearInterval(cooldownIntervalRef.current);
         }
-        startScanning();
+        // No need to restart scanner here as we're not stopping it
+        // startScanning();
       }
     }, 100); // Updates every 100ms for smooth progress
   };
@@ -259,23 +270,30 @@ const QRScanner = () => {
         return;
       }
 
-      const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
-      if (!qrElement) {
-        throw new Error('Video element not found');
+      // Use the preview video for capturing as it's larger and clearer
+      const videoElement = document.getElementById('preview-video') as HTMLVideoElement;
+      if (!videoElement || !videoElement.srcObject) {
+        console.error('Preview video element not found or no source');
+        // Fallback to QR scanner video
+        const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
+        if (!qrElement || !qrElement.srcObject) {
+          throw new Error('No video source found for capture');
+        }
+        videoElement = qrElement;
       }
 
       if (useFlash) {
         await turnOnFlash();
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos para estabilizar
+        await new Promise(resolve => setTimeout(resolve, 500)); // Short delay for flash to stabilize
       }
 
       const canvas = document.createElement('canvas');
-      canvas.width = qrElement.videoWidth;
-      canvas.height = qrElement.videoHeight;
+      canvas.width = videoElement.videoWidth;
+      canvas.height = videoElement.videoHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Could not get canvas context');
 
-      ctx.drawImage(qrElement, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
       const base64Image = canvas.toDataURL('image/jpeg', 0.9);
       const base64Data = base64Image.split(',')[1];
@@ -322,6 +340,20 @@ const QRScanner = () => {
         scannerRef.current.clear();
       }
 
+      // Clean up any existing streams first
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+
+      // Make sure the preview-video is cleared
+      const previewVideo = document.getElementById('preview-video') as HTMLVideoElement;
+      if (previewVideo && previewVideo.srcObject) {
+        const stream = previewVideo.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+        previewVideo.srcObject = null;
+      }
+
       // Configurar o scanner com dimensões reduzidas
       const scanner = new Html5QrcodeScanner(
         "qr-reader",
@@ -353,25 +385,45 @@ const QRScanner = () => {
         console.log(error);
       });
 
-      // Configurar espelhamento do vídeo no preview principal
-      setTimeout(() => {
+      // Set up a timer to check and configure the video elements
+      const setupVideoTimer = setInterval(() => {
+        console.log('Checking for video elements');
         const videoElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
         if (videoElement && videoElement.srcObject) {
-          // Armazenar referência ao elemento de vídeo
+          clearInterval(setupVideoTimer);
+          console.log('QR scanner video found, setting up preview');
+          
+          // Store reference to the video element
           videoRef.current = videoElement;
           
-          // Obter o stream de vídeo
+          // Get the video stream and store it
           const stream = videoElement.srcObject as MediaStream;
           streamRef.current = stream;
           
-          // Configurar o vídeo de preview
+          // Clone the stream for the preview video
+          const previewStream = new MediaStream();
+          stream.getVideoTracks().forEach(track => {
+            previewStream.addTrack(track.clone());
+          });
+          
+          // Set up the preview video
           const previewVideo = document.getElementById('preview-video') as HTMLVideoElement;
           if (previewVideo) {
-            previewVideo.srcObject = stream;
-            previewVideo.play().catch(e => console.error('Erro ao iniciar preview:', e));
+            previewVideo.srcObject = previewStream;
+            previewVideo.play().catch(e => {
+              console.error('Error starting preview:', e);
+              // Fallback: just use the same stream
+              previewVideo.srcObject = stream;
+              previewVideo.play().catch(e2 => console.error('Fallback also failed:', e2));
+            });
           }
         }
-      }, 1000);
+      }, 500);
+
+      // Clear the timer after 10 seconds max
+      setTimeout(() => {
+        clearInterval(setupVideoTimer);
+      }, 10000);
 
       setIsScanning(true);
     } catch (error) {
@@ -541,7 +593,7 @@ const QRScanner = () => {
         <div className="space-y-6">
           <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden relative" id="preview-container">
             {/* Preview de vídeo em tamanho grande */}
-            <video id="preview-video" className="w-full h-full" playsInline muted></video>
+            <video id="preview-video" className="w-full h-full" playsInline muted autoPlay></video>
             
             {/* Área do scanner reduzida no canto superior direito */}
             <div id="qr-reader" className="absolute top-2 right-2 w-32 h-32 rounded-lg overflow-hidden"></div>
