@@ -60,10 +60,74 @@ const QRScanner = () => {
   const imageCaptureRef = useRef<CustomImageCapture | null>(null);
   const cooldownIntervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     loadCameras();
     preventScreenLock();
+    
+    // Adicionando estilos para posicionar o scanner no canto superior direito
+    const styleElement = document.createElement('style');
+    styleElement.textContent = `
+      #qr-reader {
+        position: relative !important;
+        width: 150px !important;
+        height: 150px !important;
+        overflow: hidden !important;
+        position: absolute !important;
+        top: 10px !important;
+        right: 10px !important;
+        z-index: 100 !important;
+        border: 2px solid #0070f3 !important;
+        border-radius: 8px !important;
+      }
+      
+      #qr-reader video {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+      }
+      
+      #qr-reader__dashboard_section_csr {
+        display: none !important;
+      }
+      
+      #qr-reader__dashboard {
+        display: none !important;
+      }
+      
+      #qr-reader__status_span {
+        display: none !important;
+      }
+      
+      #qr-reader__dashboard_section_swaplink {
+        display: none !important;
+      }
+      
+      #qr-reader__camera_selection {
+        display: none !important;
+      }
+      
+      #qr-reader__scan_region {
+        border: none !important;
+      }
+
+      #preview-container {
+        position: relative !important;
+        width: 100% !important;
+        height: 300px !important;
+        border-radius: 8px !important;
+        overflow: hidden !important;
+        background-color: #000 !important;
+      }
+      
+      #preview-video {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+      }
+    `;
+    document.head.appendChild(styleElement);
     
     return () => {
       if (scannerRef.current) {
@@ -75,6 +139,7 @@ const QRScanner = () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
+      document.head.removeChild(styleElement);
     };
   }, []);
 
@@ -240,6 +305,7 @@ const QRScanner = () => {
     }
   };
 
+  // Configurar o scanner com tamanho reduzido no canto superior direito
   const startScanning = async () => {
     if (!targetQRCode.trim()) {
       toast.error('Por favor, insira um texto para buscar no QR Code');
@@ -256,15 +322,17 @@ const QRScanner = () => {
         scannerRef.current.clear();
       }
 
+      // Configurar o scanner com dimensões reduzidas
       const scanner = new Html5QrcodeScanner(
         "qr-reader",
         { 
           fps: 10,
+          qrbox: { width: 120, height: 120 }, // Área de digitalização menor
           videoConstraints: {
             deviceId: selectedCamera,
             facingMode: "environment",
-            width: { ideal: 1920 },  // Define um valor ideal para a largura
-            height: { ideal: 1080 }  // Define um valor ideal para a altura
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
           }
         },
         false
@@ -284,6 +352,26 @@ const QRScanner = () => {
       }, (error) => {
         console.log(error);
       });
+
+      // Configurar espelhamento do vídeo no preview principal
+      setTimeout(() => {
+        const videoElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
+        if (videoElement && videoElement.srcObject) {
+          // Armazenar referência ao elemento de vídeo
+          videoRef.current = videoElement;
+          
+          // Obter o stream de vídeo
+          const stream = videoElement.srcObject as MediaStream;
+          streamRef.current = stream;
+          
+          // Configurar o vídeo de preview
+          const previewVideo = document.getElementById('preview-video') as HTMLVideoElement;
+          if (previewVideo) {
+            previewVideo.srcObject = stream;
+            previewVideo.play().catch(e => console.error('Erro ao iniciar preview:', e));
+          }
+        }
+      }, 1000);
 
       setIsScanning(true);
     } catch (error) {
@@ -451,8 +539,12 @@ const QRScanner = () => {
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
         <div className="space-y-6">
-          <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden">
-            <div id="qr-reader" className="w-full h-full"></div>
+          <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden relative" id="preview-container">
+            {/* Preview de vídeo em tamanho grande */}
+            <video id="preview-video" className="w-full h-full" playsInline muted></video>
+            
+            {/* Área do scanner reduzida no canto superior direito */}
+            <div id="qr-reader" className="absolute top-2 right-2 w-32 h-32 rounded-lg overflow-hidden"></div>
           </div>
           
           <div className="space-y-2">
