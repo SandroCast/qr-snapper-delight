@@ -4,7 +4,7 @@ import QRScanner from '@/components/QRScanner';
 
 const Index = () => {
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
+    <div className="min-h-screen bg-white p-4">
       <QRScanner />
     </div>
   );
