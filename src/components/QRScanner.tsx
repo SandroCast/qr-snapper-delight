@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -424,17 +425,6 @@ const QRScanner = () => {
               scanRegionHighlight.id = 'scan-region-highlight';
               previewContainer.appendChild(scanRegionHighlight);
             }
-            
-            const originalSuccess = scanner.getStateManager().onSuccessCallback;
-            
-            scanner.getStateManager().onSuccessCallback = (decodedText, decodedResult) => {
-              if (decodedText === targetQRCode && !processingRef.current && !isCooldown) {
-                processingRef.current = true;
-                captureFrame().finally(() => {
-                  processingRef.current = false;
-                });
-              }
-            };
           }
         }
       }, 500);
@@ -442,6 +432,18 @@ const QRScanner = () => {
       setTimeout(() => {
         clearInterval(setupVideoTimer);
       }, 10000);
+
+      // Use the render method instead of trying to access getStateManager
+      scanner.render((decodedText) => {
+        if (decodedText === targetQRCode && !processingRef.current && !isCooldown) {
+          processingRef.current = true;
+          captureFrame().finally(() => {
+            processingRef.current = false;
+          });
+        }
+      }, (error) => {
+        console.log(error);
+      });
 
       setIsScanning(true);
     } catch (error) {
