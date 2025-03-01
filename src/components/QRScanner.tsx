@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ async function preventScreenLock() {
       let wakeLock = await navigator.wakeLock.request("screen");
       console.log("Wake Lock ativado!");
 
+      // Se perder o Wake Lock ao minimizar, reativa ao voltar
       document.addEventListener("visibilitychange", async () => {
         if (document.visibilityState === "visible") {
           try {
@@ -59,99 +60,10 @@ const QRScanner = () => {
   const imageCaptureRef = useRef<CustomImageCapture | null>(null);
   const cooldownIntervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     loadCameras();
     preventScreenLock();
-    
-    const styleElement = document.createElement('style');
-    styleElement.textContent = `
-      #qr-reader {
-        position: relative !important;
-        width: 150px !important;
-        height: 150px !important;
-        overflow: hidden !important;
-        position: absolute !important;
-        top: 10px !important;
-        right: 10px !important;
-        z-index: 100 !important;
-        border: 2px solid #0070f3 !important;
-        border-radius: 8px !important;
-      }
-      
-      #qr-reader video {
-        width: 100% !important;
-        height: 100% !important;
-        object-fit: cover !important;
-      }
-      
-      #qr-reader__dashboard_section_csr {
-        display: none !important;
-      }
-      
-      #qr-reader__dashboard {
-        display: none !important;
-      }
-      
-      #qr-reader__status_span {
-        display: none !important;
-      }
-      
-      #qr-reader__dashboard_section_swaplink {
-        display: none !important;
-      }
-      
-      #qr-reader__camera_selection {
-        display: none !important;
-      }
-      
-      #qr-reader__scan_region {
-        border: none !important;
-      }
-
-      #preview-container {
-        position: relative !important;
-        width: 100% !important;
-        height: 300px !important;
-        border-radius: 8px !important;
-        overflow: hidden !important;
-        background-color: #fff !important;
-      }
-      
-      #preview-video {
-        width: 100% !important;
-        height: 100% !important;
-        object-fit: cover !important;
-      }
-      
-      /* Overlay para mostrar a área de detecção do QR code (20% direita) */
-      #scan-region-highlight {
-        position: absolute;
-        top: 0;
-        right: 0;
-        width: 20%;
-        height: 100%;
-        border: 2px dashed #0070f3;
-        box-sizing: border-box;
-        pointer-events: none;
-        z-index: 50;
-        background-color: rgba(0, 112, 243, 0.1);
-      }
-      
-      /* Escurecendo o restante da tela */
-      #scan-region-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 80%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.5);
-        pointer-events: none;
-        z-index: 49;
-      }
-    `;
-    document.head.appendChild(styleElement);
     
     return () => {
       if (scannerRef.current) {
@@ -194,11 +106,13 @@ const QRScanner = () => {
       console.log('Attempting to turn on flash');
       
       try {
+        // Try the standard way first
         await track.applyConstraints({
           advanced: [{ torch: true }] as any
         });
       } catch (e) {
         console.log('Standard torch failed, trying alternative method');
+        // Try alternative method
         await track.applyConstraints({
           advanced: [{ fillLightMode: 'flash' }] as any
         });
@@ -280,28 +194,23 @@ const QRScanner = () => {
         return;
       }
 
-      let videoElement = document.getElementById('preview-video') as HTMLVideoElement;
-      if (!videoElement || !videoElement.srcObject) {
-        console.error('Preview video element not found or no source');
-        const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
-        if (!qrElement || !qrElement.srcObject) {
-          throw new Error('No video source found for capture');
-        }
-        videoElement = qrElement;
+      const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
+      if (!qrElement) {
+        throw new Error('Video element not found');
       }
 
       if (useFlash) {
         await turnOnFlash();
-        await new Promise(resolve => setTimeout(resolve, 500)); // Short delay for flash to stabilize
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos para estabilizar
       }
 
       const canvas = document.createElement('canvas');
-      canvas.width = videoElement.videoWidth;
-      canvas.height = videoElement.videoHeight;
+      canvas.width = qrElement.videoWidth;
+      canvas.height = qrElement.videoHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Could not get canvas context');
 
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(qrElement, 0, 0, canvas.width, canvas.height);
 
       const base64Image = canvas.toDataURL('image/jpeg', 0.9);
       const base64Data = base64Image.split(',')[1];
@@ -347,95 +256,30 @@ const QRScanner = () => {
         scannerRef.current.clear();
       }
 
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-        videoRef.current.srcObject = null;
-      }
-
-      const initialQRBoxWidth = 120;
-      const initialQRBoxHeight = 120;
-      
       const scanner = new Html5QrcodeScanner(
         "qr-reader",
         { 
           fps: 10,
           qrbox: { 
-            width: initialQRBoxWidth, 
-            height: initialQRBoxHeight 
+            width: 120, 
+            height: 120 
           },
           videoConstraints: {
             deviceId: selectedCamera,
             facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+            width: { ideal: 1920 },  // Define um valor ideal para a largura
+            height: { ideal: 1080 }  // Define um valor ideal para a altura
+          }
         },
         false
       );
 
       scannerRef.current = scanner;
 
-      const setupVideoTimer = setInterval(() => {
-        console.log('Checking for video elements');
-        const videoElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
-        if (videoElement && videoElement.srcObject) {
-          clearInterval(setupVideoTimer);
-          console.log('QR scanner video found, setting up preview');
-          
-          videoRef.current = videoElement;
-          
-          const stream = videoElement.srcObject as MediaStream;
-          streamRef.current = stream;
-          
-          const previewStream = new MediaStream();
-          stream.getVideoTracks().forEach(track => {
-            previewStream.addTrack(track.clone());
-          });
-          
-          const previewVideo = document.getElementById('preview-video') as HTMLVideoElement;
-          if (previewVideo) {
-            previewVideo.srcObject = previewStream;
-            previewVideo.play().catch(e => {
-              console.error('Error starting preview:', e);
-              previewVideo.srcObject = stream;
-              previewVideo.play().catch(e2 => console.error('Fallback also failed:', e2));
-            });
-            
-            const previewContainer = document.getElementById('preview-container');
-            
-            const existingOverlay = document.getElementById('scan-region-overlay');
-            if (existingOverlay) existingOverlay.remove();
-            
-            const existingHighlight = document.getElementById('scan-region-highlight');
-            if (existingHighlight) existingHighlight.remove();
-            
-            if (previewContainer) {
-              const scanRegionOverlay = document.createElement('div');
-              scanRegionOverlay.id = 'scan-region-overlay';
-              previewContainer.appendChild(scanRegionOverlay);
-              
-              const scanRegionHighlight = document.createElement('div');
-              scanRegionHighlight.id = 'scan-region-highlight';
-              previewContainer.appendChild(scanRegionHighlight);
-            }
-          }
-        }
-      }, 500);
-
-      setTimeout(() => {
-        clearInterval(setupVideoTimer);
-      }, 10000);
-
-      // Use the render method instead of trying to access getStateManager
       scanner.render((decodedText) => {
-        if (decodedText === targetQRCode && !processingRef.current && !isCooldown) {
+        if (processingRef.current || isCooldown) return;
+
+        if (decodedText === targetQRCode) {
           processingRef.current = true;
           captureFrame().finally(() => {
             processingRef.current = false;
@@ -608,13 +452,11 @@ const QRScanner = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white p-4">
+    <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
         <div className="space-y-6">
-          <div className="aspect-[4/3] bg-white rounded-lg overflow-hidden relative" id="preview-container">
-            <video id="preview-video" className="w-full h-full" playsInline muted autoPlay></video>
-            
-            <div id="qr-reader" className="absolute top-2 right-2 w-32 h-32 rounded-lg overflow-hidden"></div>
+          <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden">
+            <div id="qr-reader" className="w-full h-full"></div>
           </div>
           
           <div className="space-y-2">
