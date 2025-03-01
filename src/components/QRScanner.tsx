@@ -117,7 +117,7 @@ const QRScanner = () => {
         height: 300px !important;
         border-radius: 8px !important;
         overflow: hidden !important;
-        background-color: #000 !important;
+        background-color: #333 !important;
       }
       
       #preview-video {
@@ -127,6 +127,9 @@ const QRScanner = () => {
       }
     `;
     document.head.appendChild(styleElement);
+    
+    // This ensures that the document body has a light background
+    document.body.classList.add('bg-white');
     
     return () => {
       if (scannerRef.current) {
@@ -139,6 +142,7 @@ const QRScanner = () => {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
       document.head.removeChild(styleElement);
+      document.body.classList.remove('bg-white');
     };
   }, []);
 
@@ -586,7 +590,7 @@ const QRScanner = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
+    <div className="min-h-screen bg-white p-4">
       <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
         <div className="space-y-6">
           <div className="aspect-[4/3] bg-gray-200 rounded-lg overflow-hidden relative" id="preview-container">
