@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,6 @@ async function preventScreenLock() {
       let wakeLock = await navigator.wakeLock.request("screen");
       console.log("Wake Lock ativado!");
 
-      // Se perder o Wake Lock ao minimizar, reativa ao voltar
       document.addEventListener("visibilitychange", async () => {
         if (document.visibilityState === "visible") {
           try {
@@ -194,13 +193,11 @@ const QRScanner = () => {
       console.log('Attempting to turn on flash');
       
       try {
-        // Try the standard way first
         await track.applyConstraints({
           advanced: [{ torch: true }] as any
         });
       } catch (e) {
         console.log('Standard torch failed, trying alternative method');
-        // Try alternative method
         await track.applyConstraints({
           advanced: [{ fillLightMode: 'flash' }] as any
         });
@@ -285,7 +282,6 @@ const QRScanner = () => {
       let videoElement = document.getElementById('preview-video') as HTMLVideoElement;
       if (!videoElement || !videoElement.srcObject) {
         console.error('Preview video element not found or no source');
-        // Fallback to QR scanner video
         const qrElement = document.querySelector('#qr-reader video') as HTMLVideoElement;
         if (!qrElement || !qrElement.srcObject) {
           throw new Error('No video source found for capture');
@@ -378,7 +374,7 @@ const QRScanner = () => {
             width: { ideal: 1280 },
             height: { ideal: 720 }
           },
-          formatsToSupport: ['QR_CODE']
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
         },
         false
       );
@@ -429,47 +425,16 @@ const QRScanner = () => {
               previewContainer.appendChild(scanRegionHighlight);
             }
             
-            try {
-              if (scanner._qrCode && scanner._qrCode._decode) {
-                const originalDecode = scanner._qrCode._decode.bind(scanner._qrCode);
-                scanner._qrCode._decode = function() {
-                  const scanCanvas = document.createElement('canvas');
-                  const video = document.querySelector('#qr-reader video');
-                  
-                  if (!video) return originalDecode();
-                  
-                  const rightSideWidth = Math.round(video.videoWidth * 0.2);
-                  scanCanvas.width = rightSideWidth;
-                  scanCanvas.height = video.videoHeight;
-                  
-                  const ctx = scanCanvas.getContext('2d');
-                  if (!ctx) return originalDecode();
-                  
-                  ctx.drawImage(
-                    video, 
-                    video.videoWidth - rightSideWidth, 0,
-                    rightSideWidth, video.videoHeight,
-                    0, 0,
-                    rightSideWidth, video.videoHeight
-                  );
-                  
-                  if (scanner._qrCode._canvasElement) {
-                    const originalCanvas = scanner._qrCode._canvasElement;
-                    scanner._qrCode._canvasElement = scanCanvas;
-                    
-                    const result = originalDecode();
-                    
-                    scanner._qrCode._canvasElement = originalCanvas;
-                    
-                    return result;
-                  }
-                  
-                  return originalDecode();
-                };
+            const originalSuccess = scanner.getStateManager().onSuccessCallback;
+            
+            scanner.getStateManager().onSuccessCallback = (decodedText, decodedResult) => {
+              if (decodedText === targetQRCode && !processingRef.current && !isCooldown) {
+                processingRef.current = true;
+                captureFrame().finally(() => {
+                  processingRef.current = false;
+                });
               }
-            } catch (error) {
-              console.error('Failed to modify QR scanner region:', error);
-            }
+            };
           }
         }
       }, 500);
@@ -477,19 +442,6 @@ const QRScanner = () => {
       setTimeout(() => {
         clearInterval(setupVideoTimer);
       }, 10000);
-
-      scanner.render((decodedText) => {
-        if (processingRef.current || isCooldown) return;
-
-        if (decodedText === targetQRCode) {
-          processingRef.current = true;
-          captureFrame().finally(() => {
-            processingRef.current = false;
-          });
-        }
-      }, (error) => {
-        console.log(error);
-      });
 
       setIsScanning(true);
     } catch (error) {
