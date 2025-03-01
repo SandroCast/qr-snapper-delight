@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -271,7 +270,7 @@ const QRScanner = () => {
       }
 
       // Use the preview video for capturing as it's larger and clearer
-      const videoElement = document.getElementById('preview-video') as HTMLVideoElement;
+      let videoElement = document.getElementById('preview-video') as HTMLVideoElement;
       if (!videoElement || !videoElement.srcObject) {
         console.error('Preview video element not found or no source');
         // Fallback to QR scanner video
@@ -323,7 +322,6 @@ const QRScanner = () => {
     }
   };
 
-  // Configurar o scanner com tamanho reduzido no canto superior direito
   const startScanning = async () => {
     if (!targetQRCode.trim()) {
       toast.error('Por favor, insira um texto para buscar no QR Code');
